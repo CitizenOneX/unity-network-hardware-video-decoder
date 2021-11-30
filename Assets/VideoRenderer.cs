@@ -14,9 +14,13 @@ using UnityEngine;
 
 public class VideoRenderer : MonoBehaviour
 {
+	public string hardware = "vaapi";
+	public string codec = "h264";
 	public string device = "/dev/dri/renderD128";
+	public string pixel_format = "bgr0";
 	public string ip = "";
 	public ushort port = 9766;
+
 
 	private IntPtr unhvd;
 	private UNHVD.unhvd_frame frame = new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] };
@@ -24,7 +28,7 @@ public class VideoRenderer : MonoBehaviour
 
 	void Awake()
 	{
-		UNHVD.unhvd_hw_config hw_config = new UNHVD.unhvd_hw_config{hardware="vaapi", codec="h264", device=this.device, pixel_format="bgr0", width=0, height=0, profile=0};
+		UNHVD.unhvd_hw_config hw_config = new UNHVD.unhvd_hw_config{hardware=this.hardware, codec=this.codec, device=this.device, pixel_format=this.pixel_format, width=0, height=0, profile=0};
 		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config{ip=this.ip, port=this.port, timeout_ms=500 };
 
 		unhvd=UNHVD.unhvd_init (ref net_config, ref hw_config);
