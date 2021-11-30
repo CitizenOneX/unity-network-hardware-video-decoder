@@ -16,7 +16,18 @@ using Unity.Collections;
 
 public class GPUPointCloudRenderer : MonoBehaviour
 {
-	public string device = "/dev/dri/renderD128";
+	public string hardwareDepth = "vaapi";
+	public string hardwareTexture = "vaapi";
+	public string codecDepth = "hevc";
+	public string codecTexture = "hevc";
+	public string deviceDepth = "/dev/dri/renderD128";
+	public string deviceTexture = "/dev/dri/renderD128";
+	public int widthDepth = 848;
+	public int widthTexture = 848;
+	public int heightDepth = 480;
+	public int heightTexture = 480;
+	public string pixel_formatDepth = "p010le";
+	public string pixel_formatTexture = "rgb0";
 	public string ip = "";
 	public ushort port = 9768;
 
@@ -46,8 +57,8 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config{ip=this.ip, port=this.port, timeout_ms=500 };
 		UNHVD.unhvd_hw_config[] hw_config = new UNHVD.unhvd_hw_config[]
 		{
-			new UNHVD.unhvd_hw_config{hardware="vaapi", codec="hevc", device=this.device, pixel_format="p010le", width=848, height=480, profile=2},
-			new UNHVD.unhvd_hw_config{hardware="vaapi", codec="hevc", device=this.device, pixel_format="rgb0", width=848, height=480, profile=1}
+			new UNHVD.unhvd_hw_config{hardware=this.hardwareDepth, codec=this.codecDepth, device=this.deviceDepth, pixel_format=this.pixel_formatDepth, width=this.widthDepth, height=this.heightDepth, profile=2},
+			new UNHVD.unhvd_hw_config{hardware=this.hardwareTexture, codec=this.codecTexture, device=this.deviceTexture, pixel_format=this.pixel_formatTexture, width=this.widthTexture, height=this.heightTexture, profile=1}
 		};
 
 		IntPtr nullPtr = IntPtr.Zero;
