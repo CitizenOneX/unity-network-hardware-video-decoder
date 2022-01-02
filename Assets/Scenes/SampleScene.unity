@@ -320,7 +320,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eddd23561246c49debbd0c2e4ad8fa63, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  device: /dev/dri/renderD128
+  hardware: cuda
+  codec: h264_cuvid
+  device: 
+  pixel_format: bgr0
   ip: 
   port: 9766
 --- !u!1 &232426158
@@ -568,7 +571,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eebbb98d8203c62a98e8d5a14b6a6ceb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  device: /dev/dri/renderD128
+  hardwareDepth: cuda
+  hardwareTexture: cuda
+  codecDepth: hevc_cuvid
+  codecTexture: hevc_cuvid
+  deviceDepth: 
+  deviceTexture: 
+  widthDepth: 320
+  widthTexture: 320
+  heightDepth: 240
+  heightTexture: 240
+  pixel_formatDepth: p010le
+  pixel_formatTexture: rgb0
   ip: 
   port: 9768
 --- !u!23 &433776889
@@ -693,7 +707,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &785509538
 RectTransform:
   m_ObjectHideFlags: 0
@@ -710,8 +724,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 1, y: 1}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: -320, y: -180}
-  m_SizeDelta: {x: 640, y: 360}
+  m_AnchoredPosition: {x: -320, y: -240}
+  m_SizeDelta: {x: 640, y: 480}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &785509539
 MonoBehaviour:
@@ -759,9 +773,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 12effc58cbb744b51ba7e080578fcc88, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  device: /dev/dri/renderD128
+  hardware: cuda
+  codec: h264_cuvid
+  device: 
+  pixel_format: rgb0
   ip: 
-  port: 9767
+  port: 9766
 --- !u!1 &1469442498
 GameObject:
   m_ObjectHideFlags: 0
@@ -893,9 +910,20 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ccafc0d6535658682b48be914454d9a3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  device: /dev/dri/renderD128
+  hardwareDepth: cuda
+  hardwareTexture: cuda
+  codecDepth: hevc_cuvid
+  codecTexture: hevc_cuvid
+  deviceDepth: 
+  deviceTexture: 
+  widthDepth: 320
+  widthTexture: 640
+  heightDepth: 240
+  heightTexture: 480
+  pixel_formatDepth: p010le
+  pixel_formatTexture: rgb0
   ip: 
-  port: 9768
+  port: 9766
   unprojectionShader: {fileID: 7200000, guid: ab6e61c487f87741790f1e0f63c8c9c2, type: 3}
   pointCloudShader: {fileID: 4800000, guid: 92c9447d6f5c0ef7591ec70801039484, type: 3}
 --- !u!4 &1869987319

@@ -15,10 +15,10 @@ using UnityEngine.UI; //RawImage
 
 public class RawImageVideoRenderer : MonoBehaviour
 {
-	public string hardware = "vaapi";
+	public string hardware = "cuda";
 	public string codec = "h264";
-	public string device = "/dev/dri/renderD128";
-	public string pixel_format = "bgr0";
+	public string device = "";
+	public string pixel_format = "rgb0";
 	public string ip = "";
 	public ushort port = 9766;
 
@@ -49,18 +49,36 @@ public class RawImageVideoRenderer : MonoBehaviour
 	{
 		if(videoTexture== null || videoTexture.width != frame.width || videoTexture.height != frame.height)
 		{
-			videoTexture = new Texture2D (frame.width, frame.height, TextureFormat.BGRA32, false);
+			videoTexture = new Texture2D (frame.width, frame.height, TextureFormat.RGBA32, false);
 			GetComponent<RawImage> ().texture = videoTexture;
 		}
 	}
-				
+
 	// Update is called once per frame
-	void LateUpdate ()
+	unsafe void LateUpdate ()
 	{
 		if (UNHVD.unhvd_get_frame_begin(unhvd, ref frame) == 0)
 		{
-			AdaptTexture ();
-			videoTexture.LoadRawTextureData (frame.data[0], frame.width*frame.height*4);
+			AdaptTexture();
+
+			// RGB0 has one plane, w x h x 4 bytes per pixel
+			videoTexture.LoadRawTextureData(frame.data[0], frame.width * frame.height * 4); 
+
+			//else
+			//{
+			//	// FIXME planar format not working yet (if removed, LateUpdate doesn't need to be marked unsafe)
+			//	// NV12/YUY2 has two planes, Y and U/V-interleaved
+			//	int pixels = frame.width * frame.height;
+			//	byte[] rawData = videoTexture.GetRawTextureData();
+			//	fixed (byte* rawDataPtr = rawData)
+			//	{
+			//		System.Buffer.MemoryCopy(frame.data[0].ToPointer(), rawDataPtr, rawData.Length, pixels);
+			//		System.Buffer.MemoryCopy(frame.data[1].ToPointer(), rawDataPtr + pixels, rawData.Length, pixels);
+			//	}
+
+			//	//videoTexture.LoadRawTextureData(frame.data[0], frame.width * frame.height); 
+			//}
+
 			videoTexture.Apply (false);
 		}
 
