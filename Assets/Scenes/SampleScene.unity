@@ -232,7 +232,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!64 &202402596
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -323,7 +323,7 @@ MonoBehaviour:
   hardware: cuda
   codec: h264_cuvid
   device: 
-  pixel_format: bgr0
+  pixel_format: nv12
   ip: 
   port: 9766
 --- !u!1 &232426158
@@ -344,7 +344,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &232426159
 MonoBehaviour:
   m_ObjectHideFlags: 0

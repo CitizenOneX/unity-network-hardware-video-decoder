@@ -14,10 +14,10 @@ using UnityEngine;
 
 public class VideoRenderer : MonoBehaviour
 {
-	public string hardware = "vaapi";
-	public string codec = "h264";
-	public string device = "/dev/dri/renderD128";
-	public string pixel_format = "bgr0";
+	public string hardware = "cuda";
+	public string codec = "h264_cuvid";
+	public string device = "";
+	public string pixel_format = "nv12";
 	public string ip = "";
 	public ushort port = 9766;
 
@@ -54,7 +54,7 @@ public class VideoRenderer : MonoBehaviour
 	{
 		if(videoTexture== null || videoTexture.width != frame.width || videoTexture.height != frame.height)
 		{
-			videoTexture = new Texture2D (frame.width, frame.height, TextureFormat.BGRA32, false);
+			videoTexture = new Texture2D (frame.width, frame.height, TextureFormat.RGB24, false);
 			GetComponent<Renderer> ().material.mainTexture = videoTexture;
 		}
 	}
@@ -65,7 +65,20 @@ public class VideoRenderer : MonoBehaviour
 		if (UNHVD.unhvd_get_frame_begin(unhvd, ref frame) == 0)
 		{
 			AdaptTexture ();
-			videoTexture.LoadRawTextureData (frame.data[0], frame.width*frame.height*4);
+			var data = videoTexture.GetRawTextureData<byte>();
+			int pixels = frame.width * frame.height;
+			unsafe
+			{
+				for (int index = 0; index < pixels; index++)
+				{
+					// NV12 has Y and UV interleaved planes
+					// load the w x h luma first
+					byte Y = ((byte*)frame.data[0])[index];
+					data[3 * index] = Y;
+					data[3 * index + 1] = Y;
+					data[3 * index + 2] = Y;
+				}
+			}
 			videoTexture.Apply (false);
 		}
 
