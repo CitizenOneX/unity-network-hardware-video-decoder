@@ -16,9 +16,9 @@ using UnityEngine.UI; //RawImage
 public class RawImageVideoRenderer : MonoBehaviour
 {
 	public string hardware = "cuda";
-	public string codec = "h264";
+	public string codec = "h264_cuvid";
 	public string device = "";
-	public string pixel_format = "rgb0";
+	public string pixel_format = "nv12"; // h264_cuvid can only give back in nv12 format
 	public string ip = "";
 	public ushort port = 9766;
 
@@ -49,37 +49,35 @@ public class RawImageVideoRenderer : MonoBehaviour
 	{
 		if(videoTexture== null || videoTexture.width != frame.width || videoTexture.height != frame.height)
 		{
-			videoTexture = new Texture2D (frame.width, frame.height, TextureFormat.RGBA32, false);
+			videoTexture = new Texture2D(frame.width, frame.height, TextureFormat.RGBA32, false);
 			GetComponent<RawImage> ().texture = videoTexture;
 		}
 	}
 
 	// Update is called once per frame
-	unsafe void LateUpdate ()
+	void LateUpdate ()
 	{
 		if (UNHVD.unhvd_get_frame_begin(unhvd, ref frame) == 0)
 		{
 			AdaptTexture();
 
-			// RGB0 has one plane, w x h x 4 bytes per pixel
-			videoTexture.LoadRawTextureData(frame.data[0], frame.width * frame.height * 4); 
+			var data = videoTexture.GetRawTextureData<byte>();
+			int pixels = frame.width * frame.height;
+			unsafe {
+				for (int index = 0; index < pixels; index++)
+				{
+					// NV12 has Y and UV interleaved planes
+					// load the w x h luma first
+					byte Y = ((byte*)frame.data[0])[index];
+					data[4 * index] = Y;
+					data[4 * index + 1] = Y;
+					data[4 * index + 2] = Y;
+					data[4 * index + 3] = 255;
+				}
+			}
 
-			//else
-			//{
-			//	// FIXME planar format not working yet (if removed, LateUpdate doesn't need to be marked unsafe)
-			//	// NV12/YUY2 has two planes, Y and U/V-interleaved
-			//	int pixels = frame.width * frame.height;
-			//	byte[] rawData = videoTexture.GetRawTextureData();
-			//	fixed (byte* rawDataPtr = rawData)
-			//	{
-			//		System.Buffer.MemoryCopy(frame.data[0].ToPointer(), rawDataPtr, rawData.Length, pixels);
-			//		System.Buffer.MemoryCopy(frame.data[1].ToPointer(), rawDataPtr + pixels, rawData.Length, pixels);
-			//	}
-
-			//	//videoTexture.LoadRawTextureData(frame.data[0], frame.width * frame.height); 
-			//}
-
-			videoTexture.Apply (false);
+			// upload to the GPU
+			videoTexture.Apply();
 		}
 
 		if (UNHVD.unhvd_get_frame_end (unhvd) != 0)

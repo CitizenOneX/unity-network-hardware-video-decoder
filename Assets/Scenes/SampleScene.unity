@@ -776,7 +776,7 @@ MonoBehaviour:
   hardware: cuda
   codec: h264_cuvid
   device: 
-  pixel_format: rgb0
+  pixel_format: nv12
   ip: 
   port: 9766
 --- !u!1 &1469442498
