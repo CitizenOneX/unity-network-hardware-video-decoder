@@ -18,20 +18,20 @@ using Unity.Collections.LowLevel.Unsafe;
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class PointCloudRenderer : MonoBehaviour
 {
-	public string hardwareDepth = "vaapi";
-	public string hardwareTexture = "vaapi";
-	public string codecDepth = "hevc";
-	public string codecTexture = "hevc";
-	public string deviceDepth = "/dev/dri/renderD128";
-	public string deviceTexture = "/dev/dri/renderD128";
-	public int widthDepth = 848;
-	public int widthTexture = 848;
-	public int heightDepth = 480;
-	public int heightTexture = 480;
+	public string hardwareDepth = "cuda";
+	public string hardwareTexture = "cuda";
+	public string codecDepth = "hevc_cuvid";
+	public string codecTexture = "hevc_cuvid";
+	public string deviceDepth = "";
+	public string deviceTexture = "";
+	public int widthDepth = 320;
+	public int widthTexture = 320;
+	public int heightDepth = 240;
+	public int heightTexture = 240;
 	public string pixel_formatDepth = "p010le";
-	public string pixel_formatTexture = "bgr0";
+	public string pixel_formatTexture = "rgb0";
 	public string ip = "";
-	public ushort port = 9768;
+	public ushort port = 9766;
 
 
 	private IntPtr unhvd;
@@ -56,16 +56,19 @@ public class PointCloudRenderer : MonoBehaviour
 		//For D435 at 848x480 the MinZ is ~16.8cm, in our result unit min_margin is 0.168
 		//max_margin is arbitrarilly set
 
-		DepthConfig dc = new DepthConfig {ppx = 421.353f, ppy=240.93f, fx=426.768f, fy=426.768f, depth_unit = 0.0001f, min_margin = 0.168f, max_margin = 0.01f };
+		//DepthConfig dc = new DepthConfig {ppx = 421.353f, ppy=240.93f, fx=426.768f, fy=426.768f, depth_unit = 0.0001f, min_margin = 0.168f, max_margin = 0.01f };
 		//DepthConfig dc = new DepthConfig {ppx = 421.353f, ppy=240.93f, fx=426.768f, fy=426.768f, depth_unit = 0.0000390625f, min_margin = 0.168f, max_margin = 0.01f};
 		//DepthConfig dc - new DepthConfig {ppx = 421.353f, ppy=240.93f, fx=426.768f, fy=426.768f, depth_unit = 0.00003125f, min_margin = 0.168f, max_margin = 0.01f};
 
 		//sample config for depth + color, depth aligned to 848x480 color (so we use color intrinsics, not depth intrinsics)
 		//DepthConfig dc = new DepthConfig{ppx = 425.038f, ppy=249.114f, fx=618.377f, fy=618.411f, depth_unit = 0.0001f, min_margin = 0.168f, max_margin = 0.01f};
 
+		//sample config for L515 320x240 with depth units resulting in 6.4 mm precision and 6.5472 m range (alignment to depth)
+		DepthConfig dc = new DepthConfig{ppx = 168.805f, ppy=125.068f, fx=229.699f, fy=230.305f, depth_unit = 0.0001f, min_margin = 0.19f, max_margin = 0.01f};
+
 		//sample config for L515 640x480 with depth units resulting in 2.5 mm precision and 2.5575 m range (alignment to depth)
-		//DepthConfig dc = new DepthConfig{ppx = 358.781f, ppy=246.297f, fx=470.941f, fy=470.762f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f};
-		
+		//DepthConfig dc = new DepthConfig { ppx = 358.781f, ppy = 246.297f, fx = 470.941f, fy = 470.762f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f };
+
 		//sample config for L515 1280x720 with depth units resulting in 2.5 mm precision and 2.5575 m range (alignment to color)
 		//DepthConfig dc = new DepthConfig{ppx = 647.881f, ppy=368.939f, fx=906.795f, fy=906.768f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f};
 		//DepthConfig dc = new DepthConfig{ppx = 647.881f, ppy=368.939f, fx=906.795f, fy=906.768f, depth_unit = 0.000250f, min_margin = 0.19f, max_margin = 0.01f};
