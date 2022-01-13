@@ -101,7 +101,7 @@ public class UNHVD
 	#else
 	[DllImport ("unhvd")]
 	#endif
-	private static extern System.IntPtr unhvd_init(ref unhvd_net_config net_config, ref unhvd_hw_config hw_config, int hw_size, System.IntPtr depth_config) ;
+	private static extern System.IntPtr unhvd_init(ref unhvd_net_config net_config, ref unhvd_hw_config hw_config, int hw_size, System.IntPtr depth_config);
 
 	#if (UNITY_IPHONE || UNITY_WEBGL) && !UNITY_EDITOR
 	[DllImport ("__Internal")]
@@ -112,6 +112,7 @@ public class UNHVD
 
 	public static System.IntPtr unhvd_init(ref unhvd_net_config net_config, ref unhvd_hw_config hw_config) 
 	{
+		UnityEngine.Debug.Log("About to perform unhvd_init()");
 		return unhvd_init(ref net_config, ref hw_config, 1, System.IntPtr.Zero);
 	}
 

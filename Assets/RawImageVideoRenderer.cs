@@ -15,12 +15,13 @@ using UnityEngine.UI; //RawImage
 
 public class RawImageVideoRenderer : MonoBehaviour
 {
-	public string hardware = "cuda";
-	public string codec = "h264_cuvid";
-	public string device = "";
-	public string pixel_format = "nv12"; // h264_cuvid can only give back in nv12 format
-	public string ip = "";
-	public ushort port = 9766;
+	private string hardware = "";
+	private string codec = "h264";
+	private string device = "";
+	private string pixel_format = "yuv420p";
+	private TextureFormat texture_format = TextureFormat.RGBA32; // needs to agree with pixel format
+	private string ip = "";
+	private ushort port = 9766;
 
 	private IntPtr unhvd;
 	private UNHVD.unhvd_frame frame = new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] };
@@ -30,12 +31,15 @@ public class RawImageVideoRenderer : MonoBehaviour
 	{
 		UNHVD.unhvd_hw_config hw_config = new UNHVD.unhvd_hw_config{hardware=this.hardware, codec=this.codec, device=this.device, pixel_format=this.pixel_format, width=0, height=0, profile=0};
 		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config{ip=this.ip, port=this.port, timeout_ms=500 };
+		
+		Debug.Log(String.Format("hwconfig: {0}, {1}, {2}, {3}", hw_config.hardware, hw_config.codec, hw_config.device, hw_config.pixel_format));
+		Debug.Log(String.Format("netconfig: {0}, {1}", net_config.ip, net_config.port.ToString()));
 
 		unhvd=UNHVD.unhvd_init (ref net_config, ref hw_config);
 
 		if (unhvd == IntPtr.Zero)
 		{
-			Debug.Log ("failed to initialize UNHVD");
+			Debug.Log("failed to initialize UNHVD");
 			gameObject.SetActive (false);
 		}
 			
@@ -49,7 +53,8 @@ public class RawImageVideoRenderer : MonoBehaviour
 	{
 		if(videoTexture== null || videoTexture.width != frame.width || videoTexture.height != frame.height)
 		{
-			videoTexture = new Texture2D(frame.width, frame.height, TextureFormat.RGBA32, false);
+			Debug.Log(string.Format("AdaptTexture creating new Texture for Frame: {0}x{1}x{2}, planes:{3},{4},{5}", frame.width, frame.height, frame.format, frame.linesize[0], frame.linesize[1], frame.linesize[2]));
+			videoTexture = new Texture2D(frame.width, frame.height, texture_format, false);
 			GetComponent<RawImage> ().texture = videoTexture;
 		}
 	}
