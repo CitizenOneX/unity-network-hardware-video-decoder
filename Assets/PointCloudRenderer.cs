@@ -18,21 +18,23 @@ using Unity.Collections.LowLevel.Unsafe;
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class PointCloudRenderer : MonoBehaviour
 {
-	public string hardwareDepth = "cuda";
-	public string hardwareTexture = "cuda";
-	public string codecDepth = "hevc_cuvid";
-	public string codecTexture = "hevc_cuvid";
-	public string deviceDepth = "";
-	public string deviceTexture = "";
-	public int widthDepth = 320;
-	public int widthTexture = 320;
-	public int heightDepth = 240;
-	public int heightTexture = 240;
-	public string pixel_formatDepth = "p010le";
-	public string pixel_formatTexture = "rgb0";
-	public string ip = "";
-	public ushort port = 9766;
+	private string hardwareDepth = "";
+	private string hardwareTexture = "";
+	private string codecDepth = "hevc";
+	private string codecTexture = "hevc";
+	private string deviceDepth = "";
+	private string deviceTexture = "";
+	private int widthDepth = 320;
+	private int heightDepth = 240;
+	private int widthTexture = 640;
+	private int heightTexture = 480;
+	private string pixel_formatDepth = "p010le";
+	private string pixel_formatTexture = "yuv420p";
+	private string ip = "";
+	private ushort port = 9766;
 
+
+	private int framecounter = 0;
 
 	private IntPtr unhvd;
 	private UNHVD.unhvd_frame frame = new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] };
@@ -45,8 +47,8 @@ public class PointCloudRenderer : MonoBehaviour
 		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config{ip=this.ip, port=this.port, timeout_ms=500 };
 		UNHVD.unhvd_hw_config[] hw_config = new UNHVD.unhvd_hw_config[]
 		{
-			new UNHVD.unhvd_hw_config{hardware=this.hardwareDepth, codec=this.codecDepth, device=this.deviceDepth, pixel_format=this.pixel_formatDepth, width=this.widthDepth, height=this.heightDepth, profile=2},
-			new UNHVD.unhvd_hw_config{hardware=this.hardwareTexture, codec=this.codecTexture, device=this.deviceTexture, pixel_format=this.pixel_formatTexture, width=this.widthTexture, height=this.heightTexture, profile=1}
+			new UNHVD.unhvd_hw_config{hardware=this.hardwareDepth, codec=this.codecDepth, device=this.deviceDepth, pixel_format=this.pixel_formatDepth, width=this.widthDepth, height=this.heightDepth, profile=2}, // profile FF_PROFILE_HEVC_MAIN_10
+//			new UNHVD.unhvd_hw_config{hardware=this.hardwareTexture, codec=this.codecTexture, device=this.deviceTexture, pixel_format=this.pixel_formatTexture, width=this.widthTexture, height=this.heightTexture, profile=1} // FF_PROFILE_HEVC_MAIN
 		};
 
 		//For depth config explanation see:
@@ -104,13 +106,13 @@ public class PointCloudRenderer : MonoBehaviour
 		mesh.MarkDynamic();
 
 		//we don't want to recalculate bounds for half million dynamic points so just set wide bounds
-		mesh.bounds = new Bounds(new Vector3(0, 0, 0), new Vector3(10, 10, 10));
+		mesh.bounds = new Bounds(new Vector3(-5, -5, -5), new Vector3(5, 5, 5));
 
 		//make Unity internal mesh data match our native mesh data (separate streams for position and colors)
 		VertexAttributeDescriptor[] layout = new[]
 		{
 			new VertexAttributeDescriptor(UnityEngine.Rendering.VertexAttribute.Position, VertexAttributeFormat.Float32, 3, 0),
-			new VertexAttributeDescriptor(UnityEngine.Rendering.VertexAttribute.Color, VertexAttributeFormat.UNorm8, 4, 1),
+			new VertexAttributeDescriptor(UnityEngine.Rendering.VertexAttribute.Color, VertexAttributeFormat.UInt32, 4, 1),
 		};
 
 		mesh.SetVertexBufferParams(size, layout);
@@ -122,6 +124,21 @@ public class PointCloudRenderer : MonoBehaviour
 
 		mesh.SetIndices(indices, MeshTopology.Points,0);
 
+		// TODO temp create vertexbuffer data
+		Vector3[] positions = new Vector3[size];
+		Color32[] colors = new Color32[size];
+		for (int x=0; x<320; x++)
+        {
+			for (int z=0; z<240; z++)
+            {
+				positions[z * 320 + x] = new Vector3((x - 160)/100.0f, (float)Math.Sin(x * z), (z - 120)/100.0f);
+				colors[z * 320 + x] = Color.blue;
+            }
+        }
+		mesh.SetVertexBufferData(positions, 0, 0, size, 0);  //, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds
+		mesh.SetVertexBufferData(colors, 0, 0, size, 1);
+		// end TODO
+
 		GetComponent<MeshFilter>().mesh = mesh;
 	}
 
@@ -130,19 +147,20 @@ public class PointCloudRenderer : MonoBehaviour
 		if (UNHVD.unhvd_get_point_cloud_begin(unhvd, ref point_cloud) == 0)
 		{
 			PrepareMesh(point_cloud.size);
+			//if (++framecounter % 300 == 0) Debug.Log(string.Format("PrepareMesh called: {0}, {1}", point_cloud.size, mesh.ToString()));
 
 			//possible optimization - only render non-zero points (point_cloud.used)
-			unsafe
-			{
-				NativeArray<Vector3> pc = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Vector3>(point_cloud.data.ToPointer(), point_cloud.size, Allocator.None);
-				NativeArray<Color32> colors = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Color32>(point_cloud.colors.ToPointer(), point_cloud.size, Allocator.None);
-				#if ENABLE_UNITY_COLLECTIONS_CHECKS
-				NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref pc, AtomicSafetyHandle.Create());
-				NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref colors, AtomicSafetyHandle.Create());
-				#endif
-				mesh.SetVertexBufferData(pc, 0, 0, point_cloud.size, 0, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
-				mesh.SetVertexBufferData(colors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
-			}
+			//unsafe
+			//{
+			//	NativeArray<Vector3> pc = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Vector3>(point_cloud.data.ToPointer(), point_cloud.size, Allocator.None);
+			//	NativeArray<Color32> colors = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Color32>(point_cloud.colors.ToPointer(), point_cloud.size, Allocator.None);
+			//	#if ENABLE_UNITY_COLLECTIONS_CHECKS
+			//	NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref pc, AtomicSafetyHandle.Create());
+			//	NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref colors, AtomicSafetyHandle.Create());
+			//	#endif
+			//	mesh.SetVertexBufferData(pc, 0, 0, point_cloud.size, 0, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
+			//	mesh.SetVertexBufferData(colors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
+			//}
 		}
 
 		if (UNHVD.unhvd_get_point_cloud_end (unhvd) != 0)

@@ -11,6 +11,7 @@ Shader "Custom/VertexColor" {
         CGPROGRAM
         #pragma vertex vert
         #pragma fragment frag
+        #pragma target 3.5
 
         #include "UnityCG.cginc"
  
@@ -28,9 +29,12 @@ Shader "Custom/VertexColor" {
         VertexOutput vert(VertexInput v) {
          
             VertexOutput o;
+
             o.pos = UnityObjectToClipPos(v.v);
-            o.col = float4(v.color.r, v.color.g, v.color.b  , 1.0f);
-            o.size = 1.0; //disable size computation for now
+            o.col = float4(v.color.r, v.color.g, v.color.b, 1.0f);
+            // temp override 
+            //o.col = float4(1.0f, 1.0f, 1.0f, 1.0f);
+            o.size = 2.0; //disable size computation for now
             return o;
         }
          
