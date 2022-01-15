@@ -10,14 +10,16 @@
  */
 
 using System;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 
 public class VideoRenderer : MonoBehaviour
 {
 	private string hardware = "";
-	private string codec = "h264";
+	private string codec = "hevc";
 	private string device = "";
-	private string pixel_format = "rgba"; // should match the texture format
+	private string pixel_format = "yuv420p"; // should match the texture format
 	private TextureFormat texture_format = TextureFormat.R8; // should match the pixel format
 	private string ip = "";
 	private ushort port = 9766;
@@ -58,7 +60,7 @@ public class VideoRenderer : MonoBehaviour
 	{
 		if (videoTexture == null || videoTexture.width != frame.width || videoTexture.height != frame.height)
 		{
-			Debug.Log(string.Format("AdaptTexture creating new Texture for Frame: {0}x{1}x{2}", frame.width, frame.height, frame.format));
+			Debug.Log(string.Format("AdaptTexture creating new Texture for Frame: {0}x{1}x{2}, planes:{3},{4},{5}", frame.width, frame.height, frame.format, frame.linesize[0], frame.linesize[1], frame.linesize[2]));
 			videoTexture = new Texture2D(frame.width, frame.height, texture_format, false);
 			GetComponent<Renderer>().material.mainTexture = videoTexture;
 		}
@@ -75,13 +77,58 @@ public class VideoRenderer : MonoBehaviour
 			unsafe
 			{
 				//Debug.Log(string.Format("Linesizes:{0}, {1}, {2}", frame.linesize[0], frame.linesize[1], frame.linesize[2]));
-				for (int index = 0; index < pixels; index++)
-				{
-					// rgba should be coming out of the decoder, but looks like Y8
-					// TODO Should be able to replace with a memcpy
-					data[index] = ((byte*)frame.data[0])[index];
+				if (false) // quick hack to use manual Y->RGBA decoding
+                {
+					for (int index = 0; index < pixels; index++)
+					{
+						// YUV420P has Y, U and V planes
+						// just load the w x h luma first into RGB
+						byte Y = ((byte*)frame.data[0])[index];
+						data[4 * index] = Y;
+						data[4 * index + 1] = Y;
+						data[4 * index + 2] = Y;
+						data[4 * index + 3] = 255;
+					}
 				}
-			}
+				else if (false)
+                {
+					// quadruple the pixels
+					for (int index = 0; index < pixels; index++)
+					{
+						// YUV420P has Y, U and V planes
+						// just load the w x h luma first into 4 R8 pixels
+						byte Y = ((byte*)frame.data[0])[index];
+						data[4 * index] = Y;
+						data[4 * index + 1] = Y;
+						data[4 * index + 2] = Y;
+						data[4 * index + 3] = Y;
+					}
+				}
+				else if (false)
+				{
+					// quadruple the pixels
+					for (int index = 0; index < pixels; index++)
+					{
+						// YUV420P has Y, U and V planes
+						// just load the w x h luma first into R8 pixels
+						byte Y = ((byte*)frame.data[0])[index];
+						data[index] = Y;
+					}
+				}
+				else
+				{
+					// IR frames and Y plane of YUV frames should be able to be copied to an R8 texture in one go
+                    NativeArray<byte> yplane = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(frame.data[0].ToPointer(), pixels, Allocator.None);
+					#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                    NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref yplane, AtomicSafetyHandle.Create());
+					#endif
+					//Debug.Log(string.Format("texture length: {0}, yplane length: {1}", data.Length, yplane.Length));
+					// TODO see if I can assign directly rather than copy, but for now it's fine
+					//data.CopyFrom(yplane);
+					videoTexture.LoadRawTextureData<byte>(yplane);
+
+                }
+            }
 			videoTexture.Apply(false);
 		}
 

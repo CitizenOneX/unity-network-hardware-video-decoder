@@ -16,7 +16,7 @@ using UnityEngine.UI; //RawImage
 public class RawImageVideoRenderer : MonoBehaviour
 {
 	private string hardware = "";
-	private string codec = "h264";
+	private string codec = "hevc";
 	private string device = "";
 	private string pixel_format = "yuv420p";
 	private TextureFormat texture_format = TextureFormat.RGBA32; // needs to agree with pixel format
@@ -71,7 +71,7 @@ public class RawImageVideoRenderer : MonoBehaviour
 			unsafe {
 				for (int index = 0; index < pixels; index++)
 				{
-					// NV12 has Y and UV interleaved planes
+					// YUV420P has Y, U and V planes
 					// load the w x h luma first
 					byte Y = ((byte*)frame.data[0])[index];
 					data[4 * index] = Y;
