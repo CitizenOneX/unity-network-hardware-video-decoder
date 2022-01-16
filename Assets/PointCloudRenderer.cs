@@ -66,7 +66,7 @@ public class PointCloudRenderer : MonoBehaviour
 		//DepthConfig dc = new DepthConfig{ppx = 425.038f, ppy=249.114f, fx=618.377f, fy=618.411f, depth_unit = 0.0001f, min_margin = 0.168f, max_margin = 0.01f};
 
 		//sample config for L515 320x240 with depth units resulting in 6.4 mm precision and 6.5472 m range (alignment to depth)
-		DepthConfig dc = new DepthConfig{ppx = 168.805f, ppy=125.068f, fx=229.699f, fy=230.305f, depth_unit = 0.0001f, min_margin = 0.19f, max_margin = 0.01f};
+		DepthConfig dc = new DepthConfig{ppx = 168.805f, ppy=125.068f, fx=229.699f, fy=230.305f, depth_unit = 0.0001f*60, min_margin = 0.19f, max_margin = 0.01f};
 
 		//sample config for L515 640x480 with depth units resulting in 2.5 mm precision and 2.5575 m range (alignment to depth)
 		//DepthConfig dc = new DepthConfig { ppx = 358.781f, ppy = 246.297f, fx = 470.941f, fy = 470.762f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f };
@@ -82,7 +82,8 @@ public class PointCloudRenderer : MonoBehaviour
 
 		UNHVD.unhvd_depth_config depth_config = new UNHVD.unhvd_depth_config{ppx = dc.ppx, ppy = dc.ppy, fx = dc.fx, fy = dc.fy, depth_unit =  dc.depth_unit, min_margin = dc.min_margin, max_margin = dc.max_margin};
 
-		unhvd=UNHVD.unhvd_init (ref net_config, hw_config, hw_config.Length, ref depth_config);
+		Debug.Log(string.Format("hw_config Length: {0}", hw_config.Length));
+		unhvd = UNHVD.unhvd_init (ref net_config, hw_config, hw_config.Length, ref depth_config);
 
 		if (unhvd == IntPtr.Zero)
 		{
@@ -106,7 +107,7 @@ public class PointCloudRenderer : MonoBehaviour
 		mesh.MarkDynamic();
 
 		//we don't want to recalculate bounds for half million dynamic points so just set wide bounds
-		mesh.bounds = new Bounds(new Vector3(-5, -5, -5), new Vector3(5, 5, 5));
+		mesh.bounds = new Bounds(new Vector3(0, 0, 0), new Vector3(10, 10, 10));
 
 		//make Unity internal mesh data match our native mesh data (separate streams for position and colors)
 		VertexAttributeDescriptor[] layout = new[]
@@ -125,18 +126,18 @@ public class PointCloudRenderer : MonoBehaviour
 		mesh.SetIndices(indices, MeshTopology.Points,0);
 
 		// TODO temp create vertexbuffer data
-		Vector3[] positions = new Vector3[size];
-		Color32[] colors = new Color32[size];
-		for (int x=0; x<320; x++)
-        {
-			for (int z=0; z<240; z++)
-            {
-				positions[z * 320 + x] = new Vector3((x - 160)/100.0f, (float)Math.Sin(x * z), (z - 120)/100.0f);
-				colors[z * 320 + x] = Color.blue;
-            }
-        }
-		mesh.SetVertexBufferData(positions, 0, 0, size, 0);  //, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds
-		mesh.SetVertexBufferData(colors, 0, 0, size, 1);
+		//Vector3[] positions = new Vector3[size];
+		//Color32[] colors = new Color32[size];
+		//for (int x=0; x<320; x++)
+  //      {
+		//	for (int z=0; z<240; z++)
+  //          {
+		//		positions[z * 320 + x] = new Vector3((x - 160)/100.0f, (float)Math.Sin(x * z), (z - 120)/100.0f);
+		//		colors[z * 320 + x] = Color.blue;
+  //          }
+  //      }
+		//mesh.SetVertexBufferData(positions, 0, 0, size, 0);  //, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds
+		//mesh.SetVertexBufferData(colors, 0, 0, size, 1);
 		// end TODO
 
 		GetComponent<MeshFilter>().mesh = mesh;
@@ -144,23 +145,35 @@ public class PointCloudRenderer : MonoBehaviour
 
 	void LateUpdate ()
 	{
+		
+
 		if (UNHVD.unhvd_get_point_cloud_begin(unhvd, ref point_cloud) == 0)
 		{
 			PrepareMesh(point_cloud.size);
-			//if (++framecounter % 300 == 0) Debug.Log(string.Format("PrepareMesh called: {0}, {1}", point_cloud.size, mesh.ToString()));
 
-			//possible optimization - only render non-zero points (point_cloud.used)
-			//unsafe
-			//{
-			//	NativeArray<Vector3> pc = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Vector3>(point_cloud.data.ToPointer(), point_cloud.size, Allocator.None);
-			//	NativeArray<Color32> colors = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Color32>(point_cloud.colors.ToPointer(), point_cloud.size, Allocator.None);
-			//	#if ENABLE_UNITY_COLLECTIONS_CHECKS
-			//	NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref pc, AtomicSafetyHandle.Create());
-			//	NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref colors, AtomicSafetyHandle.Create());
-			//	#endif
-			//	mesh.SetVertexBufferData(pc, 0, 0, point_cloud.size, 0, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
-			//	mesh.SetVertexBufferData(colors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
-			//}
+            //possible optimization - only render non-zero points (point_cloud.used)
+            unsafe
+            {
+				NativeArray<Vector3> pc = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Vector3>(point_cloud.data.ToPointer(), point_cloud.size, Allocator.None);
+                NativeArray<Color32> colors = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Color32>(point_cloud.colors.ToPointer(), point_cloud.size, Allocator.None);
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+				NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref pc, AtomicSafetyHandle.Create());
+                NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref colors, AtomicSafetyHandle.Create());
+#endif
+
+                mesh.SetVertexBufferData(pc, 0, 0, point_cloud.size, 0, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
+                mesh.SetVertexBufferData(colors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
+
+				if (++framecounter % 300 == 0)
+				{
+					Debug.Log(string.Format("PrepareMesh called: {0}, pos: {1}, col: {2}", point_cloud.size, pc[0].ToString(), colors[0].ToString()));
+					Debug.Log(string.Format("PrepareMesh called: {0}, pos: {1}, col: {2}", point_cloud.size, pc[320 * 120 + 160].ToString(), colors[320 * 120 + 160].ToString()));
+					// FIXME do this once at frame 300 just to see what the bounds are
+					mesh.RecalculateBounds();
+					Debug.Log(string.Format("Mesh bounds: {0}", mesh.bounds.ToString()));
+				}
+			}
 		}
 
 		if (UNHVD.unhvd_get_point_cloud_end (unhvd) != 0)
