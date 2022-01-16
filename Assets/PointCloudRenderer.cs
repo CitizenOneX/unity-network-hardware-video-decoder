@@ -48,7 +48,7 @@ public class PointCloudRenderer : MonoBehaviour
 		UNHVD.unhvd_hw_config[] hw_config = new UNHVD.unhvd_hw_config[]
 		{
 			new UNHVD.unhvd_hw_config{hardware=this.hardwareDepth, codec=this.codecDepth, device=this.deviceDepth, pixel_format=this.pixel_formatDepth, width=this.widthDepth, height=this.heightDepth, profile=2}, // profile FF_PROFILE_HEVC_MAIN_10
-//			new UNHVD.unhvd_hw_config{hardware=this.hardwareTexture, codec=this.codecTexture, device=this.deviceTexture, pixel_format=this.pixel_formatTexture, width=this.widthTexture, height=this.heightTexture, profile=1} // FF_PROFILE_HEVC_MAIN
+			new UNHVD.unhvd_hw_config{hardware=this.hardwareTexture, codec=this.codecTexture, device=this.deviceTexture, pixel_format=this.pixel_formatTexture, width=this.widthTexture, height=this.heightTexture, profile=1} // FF_PROFILE_HEVC_MAIN
 		};
 
 		//For depth config explanation see:

@@ -27,15 +27,37 @@ public class RawImageVideoRenderer : MonoBehaviour
 	private UNHVD.unhvd_frame frame = new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] };
 	private Texture2D videoTexture;
 
+	private bool DEPTH_AND_TEXTURE_STREAMS = true;
+
+
 	void Awake()
 	{
-		UNHVD.unhvd_hw_config hw_config = new UNHVD.unhvd_hw_config{hardware=this.hardware, codec=this.codec, device=this.device, pixel_format=this.pixel_format, width=0, height=0, profile=0};
 		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config{ip=this.ip, port=this.port, timeout_ms=500 };
-		
-		Debug.Log(String.Format("hwconfig: {0}, {1}, {2}, {3}", hw_config.hardware, hw_config.codec, hw_config.device, hw_config.pixel_format));
 		Debug.Log(String.Format("netconfig: {0}, {1}", net_config.ip, net_config.port.ToString()));
 
-		unhvd=UNHVD.unhvd_init (ref net_config, ref hw_config);
+		// TODO just testing the texture stream of a depth/texture pair of streams
+		if (DEPTH_AND_TEXTURE_STREAMS) // if depth and texture streams provided
+		{
+			UNHVD.unhvd_hw_config[] hw_config =
+			{
+				new UNHVD.unhvd_hw_config{hardware=this.hardware, codec=this.codec, device=this.device, pixel_format=this.pixel_format, width=0, height=0, profile=2}, // profile FF_PROFILE_HEVC_MAIN_10
+				new UNHVD.unhvd_hw_config{hardware=this.hardware, codec=this.codec, device=this.device, pixel_format=this.pixel_format, width=0, height=0, profile=1} // FF_PROFILE_HEVC_MAIN
+			};
+			Debug.Log(String.Format("hwconfig[0]: {0}, {1}, {2}, {3}", hw_config[0].hardware, hw_config[0].codec, hw_config[0].device, hw_config[0].pixel_format));
+			Debug.Log(String.Format("hwconfig[1]: {0}, {1}, {2}, {3}", hw_config[1].hardware, hw_config[1].codec, hw_config[1].device, hw_config[1].pixel_format));
+
+			//sample config for L515 320x240 with depth units resulting in 6.4 mm precision and 6.5472 m range (alignment to depth)
+			DepthConfig dc = new DepthConfig { ppx = 168.805f, ppy = 125.068f, fx = 229.699f, fy = 230.305f, depth_unit = 0.0001f * 60, min_margin = 0.19f, max_margin = 0.01f };
+			UNHVD.unhvd_depth_config depth_config = new UNHVD.unhvd_depth_config { ppx = dc.ppx, ppy = dc.ppy, fx = dc.fx, fy = dc.fy, depth_unit = dc.depth_unit, min_margin = dc.min_margin, max_margin = dc.max_margin };
+
+			unhvd = UNHVD.unhvd_init(ref net_config, hw_config, hw_config.Length, ref depth_config);
+		}
+		else // texture stream only
+		{
+			UNHVD.unhvd_hw_config hw_config = new UNHVD.unhvd_hw_config { hardware = this.hardware, codec = this.codec, device = this.device, pixel_format = this.pixel_format, width = 0, height = 0, profile = 0 };
+			Debug.Log(String.Format("hwconfig[0]: {0}, {1}, {2}, {3}", hw_config.hardware, hw_config.codec, hw_config.device, hw_config.pixel_format));
+			unhvd = UNHVD.unhvd_init(ref net_config, ref hw_config);
+		}
 
 		if (unhvd == IntPtr.Zero)
 		{
@@ -60,29 +82,62 @@ public class RawImageVideoRenderer : MonoBehaviour
 	}
 
 	// Update is called once per frame
-	void LateUpdate ()
+	void LateUpdate()
 	{
-		if (UNHVD.unhvd_get_frame_begin(unhvd, ref frame) == 0)
+		if (DEPTH_AND_TEXTURE_STREAMS)
 		{
-			AdaptTexture();
+			UNHVD.unhvd_frame[] frames = { new UNHVD.unhvd_frame { }, new UNHVD.unhvd_frame { }, new UNHVD.unhvd_frame { } };
 
-			var data = videoTexture.GetRawTextureData<byte>();
-			int pixels = frame.width * frame.height;
-			unsafe {
-				for (int index = 0; index < pixels; index++)
+			if (UNHVD.unhvd_get_frame_begin(unhvd, frames) == 0)
+			{
+				frame = frames[1]; // copy reference to texture frame (1)
+				AdaptTexture();
+
+				var data = videoTexture.GetRawTextureData<byte>();
+				int pixels = frame.width * frame.height;
+				unsafe
 				{
-					// YUV420P has Y, U and V planes
-					// load the w x h luma first
-					byte Y = ((byte*)frame.data[0])[index];
-					data[4 * index] = Y;
-					data[4 * index + 1] = Y;
-					data[4 * index + 2] = Y;
-					data[4 * index + 3] = 255;
+					for (int index = 0; index < pixels; index++)
+					{
+						// YUV420P has Y, U and V planes
+						// load the w x h luma first
+						byte Y = ((byte*)frame.data[0])[index];
+						data[4 * index] = Y;
+						data[4 * index + 1] = Y;
+						data[4 * index + 2] = Y;
+						data[4 * index + 3] = 255;
+					}
 				}
-			}
 
-			// upload to the GPU
-			videoTexture.Apply();
+				// upload to the GPU
+				videoTexture.Apply();
+			}
+		}
+		else
+		{
+			if (UNHVD.unhvd_get_frame_begin(unhvd, ref frame) == 0)
+			{
+				AdaptTexture();
+
+				var data = videoTexture.GetRawTextureData<byte>();
+				int pixels = frame.width * frame.height;
+				unsafe
+				{
+					for (int index = 0; index < pixels; index++)
+					{
+						// YUV420P has Y, U and V planes
+						// load the w x h luma first
+						byte Y = ((byte*)frame.data[0])[index];
+						data[4 * index] = Y;
+						data[4 * index + 1] = Y;
+						data[4 * index + 2] = Y;
+						data[4 * index + 3] = 255;
+					}
+				}
+
+				// upload to the GPU
+				videoTexture.Apply();
+			}
 		}
 
 		if (UNHVD.unhvd_get_frame_end (unhvd) != 0)
