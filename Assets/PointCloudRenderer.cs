@@ -26,8 +26,8 @@ public class PointCloudRenderer : MonoBehaviour
 	private string deviceTexture = "";
 	private int widthDepth = 320;
 	private int heightDepth = 240;
-	private int widthTexture = 640;
-	private int heightTexture = 480;
+	private int widthTexture = 320; // 640; // align-to-depth makes the two streams match resolutions
+	private int heightTexture = 240; // 480;
 	private string pixel_formatDepth = "p010le";
 	private string pixel_formatTexture = "yuv420p";
 	private string ip = "";
@@ -37,10 +37,11 @@ public class PointCloudRenderer : MonoBehaviour
 	private int framecounter = 0;
 
 	private IntPtr unhvd;
-	private UNHVD.unhvd_frame frame = new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] };
+	//private UNHVD.unhvd_frame frame = new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] };
 	private UNHVD.unhvd_point_cloud point_cloud = new UNHVD.unhvd_point_cloud {data = System.IntPtr.Zero, size=0, used=0};
 
 	private Mesh mesh;
+	private Color[] meshColors;
 
 	void Awake()
 	{
@@ -101,8 +102,10 @@ public class PointCloudRenderer : MonoBehaviour
 		if(mesh == null)
 			mesh = new Mesh();
 
-		if(mesh.vertexCount == size)
+		if (mesh.vertexCount == size)
 			return;
+
+		Debug.Log(string.Format("PrepareMesh called: size {0}", size));
 
 		mesh.MarkDynamic();
 
@@ -113,7 +116,8 @@ public class PointCloudRenderer : MonoBehaviour
 		VertexAttributeDescriptor[] layout = new[]
 		{
 			new VertexAttributeDescriptor(UnityEngine.Rendering.VertexAttribute.Position, VertexAttributeFormat.Float32, 3, 0),
-			new VertexAttributeDescriptor(UnityEngine.Rendering.VertexAttribute.Color, VertexAttributeFormat.UInt32, 4, 1),
+			// FIXME changed UInt32,4 to UInt32,1 - might have been a bug? UNorm8,4 due to different color32 packing?
+			new VertexAttributeDescriptor(UnityEngine.Rendering.VertexAttribute.Color, VertexAttributeFormat.UNorm8, 4, 1),
 		};
 
 		mesh.SetVertexBufferParams(size, layout);
@@ -124,23 +128,12 @@ public class PointCloudRenderer : MonoBehaviour
 			indices[i] = i;
 
 		mesh.SetIndices(indices, MeshTopology.Points,0);
-
-		// TODO temp create vertexbuffer data
-		//Vector3[] positions = new Vector3[size];
-		//Color32[] colors = new Color32[size];
-		//for (int x=0; x<320; x++)
-  //      {
-		//	for (int z=0; z<240; z++)
-  //          {
-		//		positions[z * 320 + x] = new Vector3((x - 160)/100.0f, (float)Math.Sin(x * z), (z - 120)/100.0f);
-		//		colors[z * 320 + x] = Color.blue;
-  //          }
-  //      }
-		//mesh.SetVertexBufferData(positions, 0, 0, size, 0);  //, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds
-		//mesh.SetVertexBufferData(colors, 0, 0, size, 1);
-		// end TODO
-
 		GetComponent<MeshFilter>().mesh = mesh;
+
+		// Create a separate array to unpack the YUV into RGBA for the Vertices
+		meshColors = new Color[size];
+		// TODO remove: initialize the vertex colors to red to see if they're being updated correctly
+		for (int i = 0; i < size; i++) meshColors[i] = Color.red;
 	}
 
 	void LateUpdate ()
@@ -155,20 +148,33 @@ public class PointCloudRenderer : MonoBehaviour
             unsafe
             {
 				NativeArray<Vector3> pc = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Vector3>(point_cloud.data.ToPointer(), point_cloud.size, Allocator.None);
-                NativeArray<Color32> colors = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Color32>(point_cloud.colors.ToPointer(), point_cloud.size, Allocator.None);
+                NativeArray<byte> colors = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(point_cloud.colors.ToPointer(), point_cloud.size, Allocator.None);
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
 				NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref pc, AtomicSafetyHandle.Create());
                 NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref colors, AtomicSafetyHandle.Create());
 #endif
 
-                mesh.SetVertexBufferData(pc, 0, 0, point_cloud.size, 0, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
-                mesh.SetVertexBufferData(colors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
+				mesh.SetVertexBufferData(pc, 0, 0, point_cloud.size, 0, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
+				
+				// copy the Y plane pixels to the vertex buffer
+				//mesh.SetVertexBufferData(colors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
+
+				for (int i = 0; i < point_cloud.size; i++)
+				{
+					// OK so Color type is 4 floats 0.0->1.0. Color32 is the usual RGBA but needs to be normalised to floats for the shader (has to happen somewhere)
+					meshColors[i].r = colors[i]/255.0f;
+					meshColors[i].g = colors[i]/255.0f;
+					meshColors[i].b = colors[i]/255.0f;
+					meshColors[i].a = 1.0f;
+				}
+				//mesh.SetVertexBufferData(meshColors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
+				mesh.SetColors(meshColors);
 
 				if (++framecounter % 300 == 0)
 				{
-					Debug.Log(string.Format("PrepareMesh called: {0}, pos: {1}, col: {2}", point_cloud.size, pc[0].ToString(), colors[0].ToString()));
-					Debug.Log(string.Format("PrepareMesh called: {0}, pos: {1}, col: {2}", point_cloud.size, pc[320 * 120 + 160].ToString(), colors[320 * 120 + 160].ToString()));
+					Debug.Log(string.Format("PrepareMesh called: {0}, pos: {1}, col: {2}", point_cloud.size, pc[0].ToString(), meshColors[0].ToString()));
+					Debug.Log(string.Format("PrepareMesh called: {0}, pos: {1}, col: {2}", point_cloud.size, pc[320 * 120 + 160].ToString(), meshColors[320 * 120 + 160].ToString()));
 					// FIXME do this once at frame 300 just to see what the bounds are
 					mesh.RecalculateBounds();
 					Debug.Log(string.Format("Mesh bounds: {0}", mesh.bounds.ToString()));

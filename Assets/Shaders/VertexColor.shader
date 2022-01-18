@@ -16,8 +16,8 @@ Shader "Custom/VertexColor" {
         #include "UnityCG.cginc"
  
         struct VertexInput {
-            float4 v : POSITION;
-            float4 color: COLOR;
+            float4 pos : POSITION;
+            float4 col: COLOR;
         };
          
         struct VertexOutput {
@@ -26,14 +26,15 @@ Shader "Custom/VertexColor" {
             float size : PSIZE;
         };
          
-        VertexOutput vert(VertexInput v) {
+        VertexOutput vert(VertexInput vin) {
          
             VertexOutput o;
 
-            o.pos = UnityObjectToClipPos(v.v);
-            o.col = float4(v.color.r, v.color.g, v.color.b, 1.0f);
+            o.pos = UnityObjectToClipPos(vin.pos);
+            //o.col = float4(vin.col.r, vin.col.g, v.col.b, 1.0f);
+            o.col = vin.col;
             // temp override 
-            //o.col = float4(1.0f, 1.0f, 1.0f, 1.0f);
+            //o.col = float4(1.0f, 0f, 0.5f, 1.0f);
             o.size = 4.0; //disable size computation for now
             return o;
         }
