@@ -22,8 +22,8 @@ public class GPUPointCloudRenderer : MonoBehaviour
 	private string codecTexture = "hevc";
 	private string deviceDepth = "";
 	private string deviceTexture = "";
-	private int widthDepth = 0;	// automatically detected at runtime
-	private int widthTexture = 0; // aligned streams match resolutions (TODO could I just set these to 0 for runtime detection?)
+	private int widthDepth = 0;		// automatically detected at runtime
+	private int widthTexture = 0;	// aligned streams match resolutions
 	private int heightDepth = 0;
 	private int heightTexture = 0;
 	private string pixel_formatDepth = "p010le";
@@ -43,7 +43,9 @@ public class GPUPointCloudRenderer : MonoBehaviour
 	};
 
 	private Texture2D depthTexture; //uint16 depth map filled with data from native side
-	private Texture2D colorTexture; //rgb0 color map filled with data from native side - for now set to grayscale, but in future add U and V planes as separate textures and sample them all and combine to RGB in the shader
+	private Texture2D colorTextureY; //YUV420P color planes filled with data from native side to be combined in the shader
+	private Texture2D colorTextureU; // width/2, height/2
+	private Texture2D colorTextureV; // width/2, height/2
 
 	private ComputeBuffer vertexBuffer;
 	private ComputeBuffer argsBuffer;
@@ -146,7 +148,9 @@ public class GPUPointCloudRenderer : MonoBehaviour
 			return;
 
 		depthTexture.Apply (false);
-		colorTexture.Apply (false);
+		colorTextureY.Apply(false);
+		colorTextureU.Apply(false);
+		colorTextureV.Apply(false);
 
 		vertexBuffer.SetCounterValue(0);
 		unprojectionShader.Dispatch(0, frame[0].width/8, frame[0].height/8, 1);
@@ -165,7 +169,11 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		if(frame[1].data[0] == IntPtr.Zero)
 			return true; //only depth data is also ok
 
-		colorTexture.LoadRawTextureData (frame[1].data[0], frame[1].linesize[0] * frame[1].height);
+		// All the YUV data comes in frame 1, but are the data[] planes contiguous after that?
+		int yplane_size = frame[1].linesize[0] * frame[1].height;
+		colorTextureY.LoadRawTextureData(frame[1].data[0], yplane_size);
+		colorTextureU.LoadRawTextureData(IntPtr.Add(frame[1].data[0], yplane_size), yplane_size / 4);
+		colorTextureV.LoadRawTextureData(IntPtr.Add(frame[1].data[0], yplane_size + yplane_size / 4), yplane_size / 4);
 
 		return true;
 	}
@@ -182,20 +190,38 @@ public class GPUPointCloudRenderer : MonoBehaviour
 			unprojectionShader.SetBuffer(0, "vertices", vertexBuffer);
 		}
 
-		if(colorTexture == null || colorTexture.width != frame[1].width || colorTexture.height != frame[1].height)
+		if(colorTextureY == null || colorTextureY.width != frame[1].width || colorTextureY.height != frame[1].height)
 		{
-			if(frame[1].data[0] != IntPtr.Zero)
-				colorTexture = new Texture2D (frame[1].width, frame[1].height, TextureFormat.R8, false);
-			else
-			{	//in case only depth data is coming prepare dummy color texture
-				colorTexture = new Texture2D (frame[0].width, frame[0].height, TextureFormat.R8, false);
-				byte[] data = new byte[frame[0].width * frame[0].height];
-				for(int i=0;i<data.Length;i++)
-				data[i] = 0xFF;
-				colorTexture.SetPixelData(data, 0, 0);
-				colorTexture.Apply();
+			if (frame[1].data[0] != IntPtr.Zero)
+			{
+				colorTextureY = new Texture2D(frame[1].width, frame[1].height, TextureFormat.R8, false);
+				colorTextureU = new Texture2D(frame[1].width / 2, frame[1].height / 2, TextureFormat.R8, false);
+				colorTextureV = new Texture2D(frame[1].width / 2, frame[1].height / 2, TextureFormat.R8, false);
 			}
-			unprojectionShader.SetTexture(0, "colorTexture", colorTexture);
+			else
+			{   //in case only depth data is coming prepare dummy color textures
+				colorTextureY = new Texture2D(frame[0].width, frame[0].height, TextureFormat.R8, false);
+				byte[] data = new byte[frame[0].width * frame[0].height];
+				for (int i = 0; i < data.Length; i++)
+					data[i] = 0xFF;
+				colorTextureY.SetPixelData(data, 0, 0);
+				colorTextureY.Apply();
+
+				colorTextureU = new Texture2D(frame[0].width / 2, frame[0].height / 2, TextureFormat.R8, false);
+				data = new byte[frame[0].width * frame[0].height / 4];
+				for (int i = 0; i < data.Length; i++)
+					data[i] = 0xFF;
+				colorTextureU.SetPixelData(data, 0, 0);
+				colorTextureU.Apply();
+
+				colorTextureV = new Texture2D(frame[0].width / 2, frame[0].height / 2, TextureFormat.R8, false);
+				data = new byte[frame[0].width * frame[0].height / 4];
+				for (int i = 0; i < data.Length; i++)
+					data[i] = 0xFF;
+				colorTextureV.SetPixelData(data, 0, 0);
+				colorTextureV.Apply();
+			}
+			unprojectionShader.SetTexture(0, "colorTexture", colorTextureY);
 		}
 	}
 
