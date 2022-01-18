@@ -16,20 +16,20 @@ using Unity.Collections;
 
 public class GPUPointCloudRenderer : MonoBehaviour
 {
-	public string hardwareDepth = "vaapi";
-	public string hardwareTexture = "vaapi";
-	public string codecDepth = "hevc";
-	public string codecTexture = "hevc";
-	public string deviceDepth = "/dev/dri/renderD128";
-	public string deviceTexture = "/dev/dri/renderD128";
-	public int widthDepth = 848;
-	public int widthTexture = 848;
-	public int heightDepth = 480;
-	public int heightTexture = 480;
-	public string pixel_formatDepth = "p010le";
-	public string pixel_formatTexture = "rgb0";
-	public string ip = "";
-	public ushort port = 9768;
+	private string hardwareDepth = "";
+	private string hardwareTexture = "";
+	private string codecDepth = "hevc";
+	private string codecTexture = "hevc";
+	private string deviceDepth = "";
+	private string deviceTexture = "";
+	private int widthDepth = 320;
+	private int widthTexture = 320; // aligned streams match resolutions (TODO could I just set these to 0 for runtime detection?)
+	private int heightDepth = 240;
+	private int heightTexture = 240;
+	private string pixel_formatDepth = "p010le";
+	private string pixel_formatTexture = "yuv420p";
+	private string ip = "";
+	private ushort port = 9766;
 
 	public ComputeShader unprojectionShader;
 	public Shader pointCloudShader;
@@ -43,7 +43,7 @@ public class GPUPointCloudRenderer : MonoBehaviour
 	};
 
 	private Texture2D depthTexture; //uint16 depth map filled with data from native side
-	private Texture2D colorTexture; //rgb0 color map filled with data from native side
+	private Texture2D colorTexture; //rgb0 color map filled with data from native side - for now set to grayscale, but in future add U and V planes as separate textures and sample them all and combine to RGB in the shader
 
 	private ComputeBuffer vertexBuffer;
 	private ComputeBuffer argsBuffer;
@@ -88,8 +88,9 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		//sample config for D455 848x480 with depth units resulting in 2.5 mm precision and 2.5575 m range, MinZ at 848x480 is 350 mm, for depth, depth + ir, depth aligned color
 		//DepthConfig dc = new DepthConfig{ppx = 426.33f, ppy=239.446f, fx=422.768f, fy=422.768f, depth_unit = 0.0000390625f, min_margin = 0.35f, max_margin = 0.01f};
 
+		// TODO work out what to do about the depth_unit *60 hack
 		//sample config for L515 320x240 with depth units resulting in 6.4 mm precision and 6.5472 m range (alignment to depth)
-		DepthConfig dc = new DepthConfig { ppx = 168.805f, ppy = 125.068f, fx = 229.699f, fy = 230.305f, depth_unit = 0.0001f, min_margin = 0.19f, max_margin = 0.01f };
+		DepthConfig dc = new DepthConfig { ppx = 168.805f, ppy = 125.068f, fx = 229.699f, fy = 230.305f, depth_unit = 0.0001f*60, min_margin = 0.19f, max_margin = 0.01f };
 
 		SetDepthConfig(dc);
 	}
