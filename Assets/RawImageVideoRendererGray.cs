@@ -15,29 +15,28 @@ using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using UnityEngine.UI; //RawImage
 
-public class RawImageVideoRenderer : MonoBehaviour
+public class RawImageVideoRendererGray : MonoBehaviour
 {
 	private string hardware = "";
 	private string codec = "hevc";
 	private string device = "";
 	private string pixel_format = "yuv420p";
-	private TextureFormat texture_format = TextureFormat.RGBA32; // needs to agree with pixel format
+	private TextureFormat texture_format = TextureFormat.R8; //RGBA32; // needs to agree with pixel format
 	private string ip = "";
 	private ushort port = 9766;
 
 	private IntPtr unhvd;
 
 	private UNHVD.unhvd_frame frame = new UNHVD.unhvd_frame { data = new System.IntPtr[3], linesize = new int[3] };
-	private UNHVD.unhvd_frame[] frames = new UNHVD.unhvd_frame[] {
-		new UNHVD.unhvd_frame { data = new System.IntPtr[3], linesize = new int[3] },
-		new UNHVD.unhvd_frame { data = new System.IntPtr[3], linesize = new int[3] },
-		new UNHVD.unhvd_frame { data = new System.IntPtr[3], linesize = new int[3] }
-	}; 
-	
+	private UNHVD.unhvd_frame[] frames = new UNHVD.unhvd_frame[] { 
+		new UNHVD.unhvd_frame { data = new System.IntPtr[3], linesize = new int[3] }, 
+		new UNHVD.unhvd_frame { data = new System.IntPtr[3], linesize = new int[3] }, 
+		new UNHVD.unhvd_frame { data = new System.IntPtr[3], linesize = new int[3] } 
+	};
+
 	private Texture2D videoTexture;
 
 	private bool DEPTH_AND_TEXTURE_STREAMS = true;
-
 
 	void Awake()
 	{
@@ -93,7 +92,7 @@ public class RawImageVideoRenderer : MonoBehaviour
 	// Update is called once per frame
 	void LateUpdate()
 	{
-		// two frames - depth and texture - need to get them both
+		// if depth stream in frame 0 and texture stream in frame 1, we need to get both of them
 		if (DEPTH_AND_TEXTURE_STREAMS)
 		{
 			if (UNHVD.unhvd_get_frame_begin(unhvd, frames) == 0)
@@ -101,52 +100,59 @@ public class RawImageVideoRenderer : MonoBehaviour
 				frame = frames[1]; // copy reference to texture frame (1)
 				AdaptTexture();
 
-				var data = videoTexture.GetRawTextureData<byte>();
-				int pixels = frame.width * frame.height;
-
-				unsafe
+				if (true)// true if copying Y plane to an R8 texture
 				{
-					for (int index = 0; index < pixels; index++)
+					unsafe
 					{
-						// YUV420P has Y, U and V planes
-						// load the w x h luma first
-						byte Y = ((byte*)frame.data[0])[index]; // TODO try the U plane???
-						data[4 * index] = Y;
-						data[4 * index + 1] = Y;
-						data[4 * index + 2] = Y;
-						data[4 * index + 3] = 255;
+						// IR frames and Y plane of YUV frames should be able to be copied to an R8 texture in one go
+						NativeArray<byte> yplane = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(frame.data[0].ToPointer(), frame.width * frame.height, Allocator.None);
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+						NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref yplane, AtomicSafetyHandle.Create());
+#endif
+						//Debug.Log(string.Format("texture length: {0}, yplane length: {1}", data.Length, yplane.Length));
+						videoTexture.LoadRawTextureData<byte>(yplane);
+						// upload to the GPU
+						videoTexture.Apply();
 					}
 				}
+				else // true if copying Y values to an R8 texture one pixel at a time
+				{
+					unsafe
+					{
+						var data = videoTexture.GetRawTextureData<byte>();
+						int pixels = frame.width * frame.height;
 
-				// upload to the GPU
-				videoTexture.Apply();
+						for (int index = 0; index < pixels; index++)
+						{
+							// YUV420P has Y, U and V planes
+							// load the w x h luma first
+							data[index] = ((byte*)frame.data[0])[index];
+						}
+
+						// upload to the GPU
+						videoTexture.Apply();
+					}
+				}
 			}
 		}
-		else
+		else // just the single texture stream in frame 0, no depth stream
 		{
-			// one frame only - texture
 			if (UNHVD.unhvd_get_frame_begin(unhvd, ref frame) == 0)
 			{
 				AdaptTexture();
 
-				var data = videoTexture.GetRawTextureData<byte>();
-				int pixels = frame.width * frame.height;
 				unsafe
 				{
-					for (int index = 0; index < pixels; index++)
-					{
-						// YUV420P has Y, U and V planes
-						// load the w x h luma first
-						byte Y = ((byte*)frame.data[0])[index];
-						data[4 * index] = Y;
-						data[4 * index + 1] = Y;
-						data[4 * index + 2] = Y;
-						data[4 * index + 3] = 255;
-					}
+					// IR frames and Y plane of YUV frames should be able to be copied to an R8 texture in one go
+					NativeArray<byte> yplane = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(frame.data[0].ToPointer(), frame.width * frame.height, Allocator.None);
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+					NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref yplane, AtomicSafetyHandle.Create());
+#endif
+					//Debug.Log(string.Format("texture length: {0}, yplane length: {1}", data.Length, yplane.Length));
+					videoTexture.LoadRawTextureData<byte>(yplane);
+					// upload to the GPU
+					videoTexture.Apply();
 				}
-
-				// upload to the GPU
-				videoTexture.Apply();
 			}
 		}
 
