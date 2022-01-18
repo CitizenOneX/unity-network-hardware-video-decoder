@@ -22,10 +22,10 @@ public class GPUPointCloudRenderer : MonoBehaviour
 	private string codecTexture = "hevc";
 	private string deviceDepth = "";
 	private string deviceTexture = "";
-	private int widthDepth = 320;
-	private int widthTexture = 320; // aligned streams match resolutions (TODO could I just set these to 0 for runtime detection?)
-	private int heightDepth = 240;
-	private int heightTexture = 240;
+	private int widthDepth = 0;	// automatically detected at runtime
+	private int widthTexture = 0; // aligned streams match resolutions (TODO could I just set these to 0 for runtime detection?)
+	private int heightDepth = 0;
+	private int heightTexture = 0;
 	private string pixel_formatDepth = "p010le";
 	private string pixel_formatTexture = "yuv420p";
 	private string ip = "";
@@ -185,13 +185,13 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		if(colorTexture == null || colorTexture.width != frame[1].width || colorTexture.height != frame[1].height)
 		{
 			if(frame[1].data[0] != IntPtr.Zero)
-				colorTexture = new Texture2D (frame[1].width, frame[1].height, TextureFormat.RGBA32, false);
+				colorTexture = new Texture2D (frame[1].width, frame[1].height, TextureFormat.R8, false);
 			else
 			{	//in case only depth data is coming prepare dummy color texture
-				colorTexture = new Texture2D (frame[0].width, frame[0].height, TextureFormat.RGBA32, false);
-				uint[] data = new uint[frame[0].width * frame[0].height];
+				colorTexture = new Texture2D (frame[0].width, frame[0].height, TextureFormat.R8, false);
+				byte[] data = new byte[frame[0].width * frame[0].height];
 				for(int i=0;i<data.Length;i++)
-				data[i] = 0xFFFFFFFF;
+				data[i] = 0xFF;
 				colorTexture.SetPixelData(data, 0, 0);
 				colorTexture.Apply();
 			}
