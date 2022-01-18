@@ -172,8 +172,8 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		// All the YUV data comes in frame 1, but are the data[] planes contiguous after that?
 		int yplane_size = frame[1].linesize[0] * frame[1].height;
 		colorTextureY.LoadRawTextureData(frame[1].data[0], yplane_size);
-		colorTextureU.LoadRawTextureData(IntPtr.Add(frame[1].data[0], yplane_size), yplane_size / 4);
-		colorTextureV.LoadRawTextureData(IntPtr.Add(frame[1].data[0], yplane_size + yplane_size / 4), yplane_size / 4);
+		colorTextureU.LoadRawTextureData(frame[1].data[1], yplane_size / 4);
+		colorTextureV.LoadRawTextureData(frame[1].data[2], yplane_size / 4);
 
 		return true;
 	}
@@ -221,7 +221,9 @@ public class GPUPointCloudRenderer : MonoBehaviour
 				colorTextureV.SetPixelData(data, 0, 0);
 				colorTextureV.Apply();
 			}
-			unprojectionShader.SetTexture(0, "colorTexture", colorTextureY);
+			unprojectionShader.SetTexture(0, "colorTextureY", colorTextureY);
+			unprojectionShader.SetTexture(0, "colorTextureU", colorTextureU);
+			unprojectionShader.SetTexture(0, "colorTextureV", colorTextureV);
 		}
 	}
 
