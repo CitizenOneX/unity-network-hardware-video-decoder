@@ -18,7 +18,7 @@ public class RawImageVideoRenderer : MonoBehaviour
 	private string hardware = "cuda";
 	private string codec = "hevc_cuvid";
 	private string device = "";
-	private string pixel_format = "nv12"; // h264_cuvid can only give back in nv12 format
+	private string pixel_format = "yuv420p"; // hevc_cuvid can give back in NV12 and YUV420p it seems
 	private string ip = "";
 	private ushort port = 9766;
 
@@ -49,6 +49,7 @@ public class RawImageVideoRenderer : MonoBehaviour
 	{
 		if(videoTexture== null || videoTexture.width != frame.width || videoTexture.height != frame.height)
 		{
+			Debug.Log(string.Format("Texture plane format: {0} linesizes: ({1}, {2}, {3})", frame.format, frame.linesize[0], frame.linesize[1], frame.linesize[2]));
 			videoTexture = new Texture2D(frame.width, frame.height, TextureFormat.RGBA32, false);
 			GetComponent<RawImage> ().texture = videoTexture;
 		}
@@ -62,11 +63,11 @@ public class RawImageVideoRenderer : MonoBehaviour
 			AdaptTexture();
 
 			var data = videoTexture.GetRawTextureData<byte>();
-			int pixels = frame.width * frame.height;
+			int pixels = frame.width * frame.height; // / 4; // TODO /4 for U, V planes, not for Y
 			unsafe {
 				for (int index = 0; index < pixels; index++)
 				{
-					// NV12 has Y and UV interleaved planes
+					// YUV420P has Y, U and V planes
 					// load the w x h luma first
 					byte Y = ((byte*)frame.data[0])[index];
 					data[4 * index] = Y;
