@@ -18,27 +18,29 @@ using Unity.Collections.LowLevel.Unsafe;
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class PointCloudRenderer : MonoBehaviour
 {
-	public string hardwareDepth = "cuda";
-	public string hardwareTexture = "cuda";
-	public string codecDepth = "hevc_cuvid";
-	public string codecTexture = "hevc_cuvid";
-	public string deviceDepth = "";
-	public string deviceTexture = "";
-	public int widthDepth = 320;
-	public int widthTexture = 320;
-	public int heightDepth = 240;
-	public int heightTexture = 240;
-	public string pixel_formatDepth = "p010le";
-	public string pixel_formatTexture = "rgb0";
-	public string ip = "";
-	public ushort port = 9766;
+	private string hardwareDepth = "cuda";
+	private string hardwareTexture = "cuda";
+	private string codecDepth = "hevc_cuvid";
+	private string codecTexture = "hevc_cuvid";
+	private string deviceDepth = "";
+	private string deviceTexture = "";
+	private int widthDepth = 0;     // automatically detected at runtime
+	private int widthTexture = 0;   // aligned streams match resolutions
+	private int heightDepth = 0;
+	private int heightTexture = 0;
+	private string pixel_formatDepth = "p010le";
+	private string pixel_formatTexture = "yuv420p";
+	private string ip = "";
+	private ushort port = 9766;
 
+	private int framecounter = 0;
 
 	private IntPtr unhvd;
-	private UNHVD.unhvd_frame frame = new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] };
+
 	private UNHVD.unhvd_point_cloud point_cloud = new UNHVD.unhvd_point_cloud {data = System.IntPtr.Zero, size=0, used=0};
 
 	private Mesh mesh;
+	private Color[] meshColors;
 
 	void Awake()
 	{
@@ -110,7 +112,7 @@ public class PointCloudRenderer : MonoBehaviour
 		VertexAttributeDescriptor[] layout = new[]
 		{
 			new VertexAttributeDescriptor(UnityEngine.Rendering.VertexAttribute.Position, VertexAttributeFormat.Float32, 3, 0),
-			new VertexAttributeDescriptor(UnityEngine.Rendering.VertexAttribute.Color, VertexAttributeFormat.UNorm8, 4, 1),
+			new VertexAttributeDescriptor(UnityEngine.Rendering.VertexAttribute.Color, VertexAttributeFormat.Float32, 4, 1),
 		};
 
 		mesh.SetVertexBufferParams(size, layout);
@@ -123,6 +125,11 @@ public class PointCloudRenderer : MonoBehaviour
 		mesh.SetIndices(indices, MeshTopology.Points,0);
 
 		GetComponent<MeshFilter>().mesh = mesh;
+
+		// Create a separate array to unpack the YUV into RGBA for the Vertices
+		meshColors = new Color[size];
+		// TODO remove: initialize the vertex colors to red to see if they're being updated correctly
+		for (int i = 0; i < size; i++) meshColors[i] = Color.red;
 	}
 
 	void LateUpdate ()
@@ -132,16 +139,54 @@ public class PointCloudRenderer : MonoBehaviour
 			PrepareMesh(point_cloud.size);
 
 			//possible optimization - only render non-zero points (point_cloud.used)
+			//unsafe
+			//{
+			//	NativeArray<Vector3> pc = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Vector3>(point_cloud.data.ToPointer(), point_cloud.size, Allocator.None);
+			//	NativeArray<Color32> colors = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Color32>(point_cloud.colors.ToPointer(), point_cloud.size, Allocator.None);
+			//	#if ENABLE_UNITY_COLLECTIONS_CHECKS
+			//	NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref pc, AtomicSafetyHandle.Create());
+			//	NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref colors, AtomicSafetyHandle.Create());
+			//	#endif
+			//	mesh.SetVertexBufferData(pc, 0, 0, point_cloud.size, 0, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
+			//	mesh.SetVertexBufferData(colors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
+			//}
+
+			//possible optimization - only render non-zero points (point_cloud.used)
 			unsafe
 			{
 				NativeArray<Vector3> pc = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Vector3>(point_cloud.data.ToPointer(), point_cloud.size, Allocator.None);
-				NativeArray<Color32> colors = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Color32>(point_cloud.colors.ToPointer(), point_cloud.size, Allocator.None);
-				#if ENABLE_UNITY_COLLECTIONS_CHECKS
+				NativeArray<byte> colors = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(point_cloud.colors.ToPointer(), point_cloud.size, Allocator.None);
+
+	#if ENABLE_UNITY_COLLECTIONS_CHECKS
 				NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref pc, AtomicSafetyHandle.Create());
 				NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref colors, AtomicSafetyHandle.Create());
-				#endif
+	#endif
+
 				mesh.SetVertexBufferData(pc, 0, 0, point_cloud.size, 0, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
-				mesh.SetVertexBufferData(colors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
+
+				// copy the Y plane pixels to the vertex buffer
+				//mesh.SetVertexBufferData(colors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
+
+				for (int i = 0; i < point_cloud.size; i++)
+				{
+					// OK so Color type is 4 floats 0.0->1.0. Color32 is the usual RGBA but needs to be normalised to floats for the shader (has to happen somewhere)
+					meshColors[i].r = colors[i] / 255.0f;
+					meshColors[i].g = colors[i] / 255.0f;
+					meshColors[i].b = colors[i] / 255.0f;
+					meshColors[i].a = 1.0f;
+				}
+				
+				mesh.SetVertexBufferData(meshColors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
+				//mesh.SetColors(meshColors);
+
+				if (++framecounter % 300 == 0)
+				{
+					Debug.Log(string.Format("PrepareMesh called: {0}, pos: {1}, col: {2}", point_cloud.size, pc[0].ToString(), meshColors[0].ToString()));
+					Debug.Log(string.Format("PrepareMesh called: {0}, pos: {1}, col: {2}", point_cloud.size, pc[320 * 120 + 160].ToString(), meshColors[320 * 120 + 160].ToString()));
+					// FIXME do this once at frame 300 just to see what the bounds are
+					mesh.RecalculateBounds();
+					Debug.Log(string.Format("Mesh bounds: {0}", mesh.bounds.ToString()));
+				}
 			}
 		}
 

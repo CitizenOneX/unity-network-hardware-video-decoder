@@ -16,20 +16,20 @@ using Unity.Collections;
 
 public class GPUPointCloudRenderer : MonoBehaviour
 {
-	public string hardwareDepth = "vaapi";
-	public string hardwareTexture = "vaapi";
-	public string codecDepth = "hevc";
-	public string codecTexture = "hevc";
-	public string deviceDepth = "/dev/dri/renderD128";
-	public string deviceTexture = "/dev/dri/renderD128";
-	public int widthDepth = 848;
-	public int widthTexture = 848;
-	public int heightDepth = 480;
-	public int heightTexture = 480;
-	public string pixel_formatDepth = "p010le";
-	public string pixel_formatTexture = "rgb0";
-	public string ip = "";
-	public ushort port = 9768;
+	private string hardwareDepth = "cuda";
+	private string hardwareTexture = "cuda";
+	private string codecDepth = "hevc_cuvid";
+	private string codecTexture = "hevc_cuvid";
+	private string deviceDepth = "";
+	private string deviceTexture = "";
+	private int widthDepth = 0;     // automatically detected at runtime
+	private int widthTexture = 0;   // aligned streams match resolutions
+	private int heightDepth = 0;
+	private int heightTexture = 0;
+	private string pixel_formatDepth = "p010le";
+	private string pixel_formatTexture = "yuv420p";
+	private string ip = "";
+	private ushort port = 9766;
 
 	public ComputeShader unprojectionShader;
 	public Shader pointCloudShader;
@@ -43,18 +43,20 @@ public class GPUPointCloudRenderer : MonoBehaviour
 	};
 
 	private Texture2D depthTexture; //uint16 depth map filled with data from native side
-	private Texture2D colorTexture; //rgb0 color map filled with data from native side
+	private Texture2D colorTextureY; //YUV420P color planes filled with data from native side to be combined in the shader
+	private Texture2D colorTextureU; // width/2, height/2
+	private Texture2D colorTextureV; // width/2, height/2
 
 	private ComputeBuffer vertexBuffer;
 	private ComputeBuffer argsBuffer;
-	
+
 	private Material material;
 
 	void Awake()
 	{
 		//Application.targetFrameRate = 30;
 
-		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config{ip=this.ip, port=this.port, timeout_ms=500 };
+		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config { ip = this.ip, port = this.port, timeout_ms = 500 };
 		UNHVD.unhvd_hw_config[] hw_config = new UNHVD.unhvd_hw_config[]
 		{
 			new UNHVD.unhvd_hw_config{hardware=this.hardwareDepth, codec=this.codecDepth, device=this.deviceDepth, pixel_format=this.pixel_formatDepth, width=this.widthDepth, height=this.heightDepth, profile=2},
@@ -62,20 +64,20 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		};
 
 		IntPtr nullPtr = IntPtr.Zero;
-		
-		unhvd = UNHVD.unhvd_init (ref net_config, hw_config, hw_config.Length, IntPtr.Zero);
-	
+
+		unhvd = UNHVD.unhvd_init(ref net_config, hw_config, hw_config.Length, IntPtr.Zero);
+
 		if (unhvd == IntPtr.Zero)
 		{
 			Debug.Log("failed to initialize UNHVD");
-			gameObject.SetActive (false);
+			gameObject.SetActive(false);
 			return;
 		}
 
-		argsBuffer = new ComputeBuffer( 4, sizeof( int ), ComputeBufferType.IndirectArguments );
+		argsBuffer = new ComputeBuffer(4, sizeof(int), ComputeBufferType.IndirectArguments);
 		//vertex count per instance, instance count, start vertex location, start instance location
 		//see https://docs.unity3d.com/2019.4/Documentation/ScriptReference/Graphics.DrawProceduralIndirectNow.html
-		argsBuffer.SetData( new int[] { 0, 1, 0, 0 } );
+		argsBuffer.SetData(new int[] { 0, 1, 0, 0 });
 
 		//For depth config explanation see:
 		//https://github.com/bmegli/unity-network-hardware-video-decoder/wiki/Point-clouds-configuration
@@ -88,8 +90,9 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		//sample config for D455 848x480 with depth units resulting in 2.5 mm precision and 2.5575 m range, MinZ at 848x480 is 350 mm, for depth, depth + ir, depth aligned color
 		//DepthConfig dc = new DepthConfig{ppx = 426.33f, ppy=239.446f, fx=422.768f, fy=422.768f, depth_unit = 0.0000390625f, min_margin = 0.35f, max_margin = 0.01f};
 
+		// TODO work out what to do about the depth_unit *60 hack
 		//sample config for L515 320x240 with depth units resulting in 6.4 mm precision and 6.5472 m range (alignment to depth)
-		DepthConfig dc = new DepthConfig { ppx = 168.805f, ppy = 125.068f, fx = 229.699f, fy = 230.305f, depth_unit = 0.0001f, min_margin = 0.19f, max_margin = 0.01f };
+		DepthConfig dc = new DepthConfig { ppx = 168.805f, ppy = 125.068f, fx = 229.699f, fy = 230.305f, depth_unit = 0.0001f * 60.0f, min_margin = 0.19f, max_margin = 0.01f };
 
 		SetDepthConfig(dc);
 	}
@@ -103,7 +106,7 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		//Our depth encoding uses P010LE format for depth texture which uses 10 MSB of 16 bits (0xffc0 is 10 "1" and 6 "0")
 		float maxValidDistance = (dc.depth_unit * 0xffc0 - dc.max_margin) / maxDistance;
 		//The multiplier renormalizes [0, 1] to real world units again and is part of unprojection
-		float[] unprojectionMultiplier = {maxDistance / dc.fx, maxDistance / dc.fy, maxDistance};
+		float[] unprojectionMultiplier = { maxDistance / dc.fx, maxDistance / dc.fy, maxDistance };
 
 		unprojectionShader.SetFloats("UnprojectionMultiplier", unprojectionMultiplier);
 		unprojectionShader.SetFloat("PPX", dc.ppx);
@@ -114,57 +117,63 @@ public class GPUPointCloudRenderer : MonoBehaviour
 
 	void OnDestroy()
 	{
-		UNHVD.unhvd_close (unhvd);
+		UNHVD.unhvd_close(unhvd);
 
-		if(vertexBuffer != null)
+		if (vertexBuffer != null)
 			vertexBuffer.Release();
 
-		if(argsBuffer != null)
+		if (argsBuffer != null)
 			argsBuffer.Release();
 
 		if (material != null)
 		{
-			if (Application.isPlaying)			
+			if (Application.isPlaying)
 				Destroy(material);
-			else			
+			else
 				DestroyImmediate(material);
-		}	
+		}
 	}
 
-	void LateUpdate ()
+	void LateUpdate()
 	{
 		bool updateNeeded = false;
 
 		if (UNHVD.unhvd_get_frame_begin(unhvd, frame) == 0)
 			updateNeeded = PrepareTextures();
 
-		if (UNHVD.unhvd_get_frame_end (unhvd) != 0)
-			Debug.LogWarning ("Failed to get UNHVD frame data");
+		if (UNHVD.unhvd_get_frame_end(unhvd) != 0)
+			Debug.LogWarning("Failed to get UNHVD frame data");
 
-		if(!updateNeeded)
+		if (!updateNeeded)
 			return;
 
-		depthTexture.Apply (false);
-		colorTexture.Apply (false);
+		depthTexture.Apply(false);
+		colorTextureY.Apply(false);
+		colorTextureU.Apply(false);
+		colorTextureV.Apply(false);
 
 		vertexBuffer.SetCounterValue(0);
-		unprojectionShader.Dispatch(0, frame[0].width/8, frame[0].height/8, 1);
+		unprojectionShader.Dispatch(0, frame[0].width / 8, frame[0].height / 8, 1);
 		ComputeBuffer.CopyCount(vertexBuffer, argsBuffer, 0);
 	}
 
 	private bool PrepareTextures()
 	{
-		if(frame[0].data[0] == IntPtr.Zero)
+		if (frame[0].data[0] == IntPtr.Zero)
 			return false;
 
 		Adapt();
 
-		depthTexture.LoadRawTextureData (frame[0].data[0], frame[0].linesize[0] * frame[0].height);
+		depthTexture.LoadRawTextureData(frame[0].data[0], frame[0].linesize[0] * frame[0].height);
 
-		if(frame[1].data[0] == IntPtr.Zero)
+		if (frame[1].data[0] == IntPtr.Zero)
 			return true; //only depth data is also ok
 
-		colorTexture.LoadRawTextureData (frame[1].data[0], frame[1].linesize[0] * frame[1].height);
+		// All the YUV data comes in frame 1, but are the data[] planes contiguous after that?
+		int yplane_size = frame[1].linesize[0] * frame[1].height;
+		colorTextureY.LoadRawTextureData(frame[1].data[0], yplane_size);
+		colorTextureU.LoadRawTextureData(frame[1].data[1], yplane_size / 4);
+		colorTextureV.LoadRawTextureData(frame[1].data[2], yplane_size / 4);
 
 		return true;
 	}
@@ -172,35 +181,55 @@ public class GPUPointCloudRenderer : MonoBehaviour
 	private void Adapt()
 	{
 		//adapt to incoming stream if something changed
-		if(depthTexture == null || depthTexture.width != frame[0].width || depthTexture.height != frame[0].height)
+		if (depthTexture == null || depthTexture.width != frame[0].width || depthTexture.height != frame[0].height)
 		{
-			depthTexture = new Texture2D (frame[0].width, frame[0].height, TextureFormat.R16, false);
+			depthTexture = new Texture2D(frame[0].width, frame[0].height, TextureFormat.R16, false);
 			unprojectionShader.SetTexture(0, "depthTexture", depthTexture);
 
-			vertexBuffer = new ComputeBuffer(frame[0].width*frame[0].height, 2 * sizeof(float)*4, ComputeBufferType.Append);
+			vertexBuffer = new ComputeBuffer(frame[0].width * frame[0].height, 2 * sizeof(float) * 4, ComputeBufferType.Append);
 			unprojectionShader.SetBuffer(0, "vertices", vertexBuffer);
 		}
 
-		if(colorTexture == null || colorTexture.width != frame[1].width || colorTexture.height != frame[1].height)
+		if (colorTextureY == null || colorTextureY.width != frame[1].width || colorTextureY.height != frame[1].height)
 		{
-			if(frame[1].data[0] != IntPtr.Zero)
-				colorTexture = new Texture2D (frame[1].width, frame[1].height, TextureFormat.RGBA32, false);
-			else
-			{	//in case only depth data is coming prepare dummy color texture
-				colorTexture = new Texture2D (frame[0].width, frame[0].height, TextureFormat.RGBA32, false);
-				uint[] data = new uint[frame[0].width * frame[0].height];
-				for(int i=0;i<data.Length;i++)
-				data[i] = 0xFFFFFFFF;
-				colorTexture.SetPixelData(data, 0, 0);
-				colorTexture.Apply();
+			if (frame[1].data[0] != IntPtr.Zero)
+			{
+				colorTextureY = new Texture2D(frame[1].width, frame[1].height, TextureFormat.R8, false);
+				colorTextureU = new Texture2D(frame[1].width / 2, frame[1].height / 2, TextureFormat.R8, false);
+				colorTextureV = new Texture2D(frame[1].width / 2, frame[1].height / 2, TextureFormat.R8, false);
 			}
-			unprojectionShader.SetTexture(0, "colorTexture", colorTexture);
+			else
+			{   //in case only depth data is coming prepare dummy color textures
+				colorTextureY = new Texture2D(frame[0].width, frame[0].height, TextureFormat.R8, false);
+				byte[] data = new byte[frame[0].width * frame[0].height];
+				for (int i = 0; i < data.Length; i++)
+					data[i] = 0xFF;
+				colorTextureY.SetPixelData(data, 0, 0);
+				colorTextureY.Apply();
+
+				colorTextureU = new Texture2D(frame[0].width / 2, frame[0].height / 2, TextureFormat.R8, false);
+				data = new byte[frame[0].width * frame[0].height / 4];
+				for (int i = 0; i < data.Length; i++)
+					data[i] = 0xFF;
+				colorTextureU.SetPixelData(data, 0, 0);
+				colorTextureU.Apply();
+
+				colorTextureV = new Texture2D(frame[0].width / 2, frame[0].height / 2, TextureFormat.R8, false);
+				data = new byte[frame[0].width * frame[0].height / 4];
+				for (int i = 0; i < data.Length; i++)
+					data[i] = 0xFF;
+				colorTextureV.SetPixelData(data, 0, 0);
+				colorTextureV.Apply();
+			}
+			unprojectionShader.SetTexture(0, "colorTextureY", colorTextureY);
+			unprojectionShader.SetTexture(0, "colorTextureU", colorTextureU);
+			unprojectionShader.SetTexture(0, "colorTextureV", colorTextureV);
 		}
 	}
 
 	void OnRenderObject()
-	{	
-		if(vertexBuffer == null)
+	{
+		if (vertexBuffer == null)
 			return;
 
 		if (material == null)
