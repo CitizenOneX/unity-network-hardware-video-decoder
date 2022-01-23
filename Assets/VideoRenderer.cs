@@ -54,6 +54,7 @@ public class VideoRenderer : MonoBehaviour
 	{
 		if(videoTexture== null || videoTexture.width != frame.width || videoTexture.height != frame.height)
 		{
+			Debug.Log(string.Format("Texture plane format: {0} linesizes: ({1}, {2}, {3})", frame.format, frame.linesize[0], frame.linesize[1], frame.linesize[2]));
 			videoTexture = new Texture2D (frame.width, frame.height, TextureFormat.RGB24, false);
 			GetComponent<Renderer> ().material.mainTexture = videoTexture;
 		}
@@ -71,7 +72,7 @@ public class VideoRenderer : MonoBehaviour
 			{
 				for (int index = 0; index < pixels; index++)
 				{
-					// NV12 has Y and UV interleaved planes
+					// YUV420P has Y, U and V planes
 					// load the w x h luma first
 					byte Y = ((byte*)frame.data[0])[index];
 					data[3 * index] = Y;
