@@ -15,12 +15,12 @@ using UnityEngine.UI; //RawImage
 
 public class RawImageVideoRenderer : MonoBehaviour
 {
-	public string hardware = "cuda";
-	public string codec = "h264_cuvid";
-	public string device = "";
-	public string pixel_format = "nv12"; // h264_cuvid can only give back in nv12 format
-	public string ip = "";
-	public ushort port = 9766;
+	private string hardware = "cuda";
+	private string codec = "hevc_cuvid";
+	private string device = "";
+	private string pixel_format = "nv12"; // h264_cuvid can only give back in nv12 format
+	private string ip = "";
+	private ushort port = 9766;
 
 	private IntPtr unhvd;
 	private UNHVD.unhvd_frame frame = new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] };

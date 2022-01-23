@@ -320,12 +320,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eddd23561246c49debbd0c2e4ad8fa63, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  hardware: cuda
-  codec: h264_cuvid
-  device: 
-  pixel_format: nv12
-  ip: 
-  port: 9766
 --- !u!1 &232426158
 GameObject:
   m_ObjectHideFlags: 0
@@ -344,7 +338,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &232426159
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -558,7 +552,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &433776888
 MonoBehaviour:
   m_ObjectHideFlags: 0

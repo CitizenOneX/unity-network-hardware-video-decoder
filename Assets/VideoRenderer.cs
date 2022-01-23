@@ -14,12 +14,12 @@ using UnityEngine;
 
 public class VideoRenderer : MonoBehaviour
 {
-	public string hardware = "cuda";
-	public string codec = "h264_cuvid";
-	public string device = "";
-	public string pixel_format = "nv12";
-	public string ip = "";
-	public ushort port = 9766;
+	private string hardware = "cuda";
+	private string codec = "hevc_cuvid";
+	private string device = "";
+	private string pixel_format = "yuv420p";
+	private string ip = "";
+	private ushort port = 9766;
 
 
 	private IntPtr unhvd;
