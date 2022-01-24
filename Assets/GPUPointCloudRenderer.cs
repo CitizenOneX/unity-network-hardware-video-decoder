@@ -13,6 +13,7 @@ using System;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 
 public class GPUPointCloudRenderer : MonoBehaviour
 {
@@ -27,7 +28,7 @@ public class GPUPointCloudRenderer : MonoBehaviour
 	private int heightDepth = 0;
 	private int heightTexture = 0;
 	private string pixel_formatDepth = "p010le";
-	private string pixel_formatTexture = "yuv420p";
+	private string pixel_formatTexture = "nv12";
 	private string ip = "";
 	private ushort port = 9766;
 
@@ -44,7 +45,7 @@ public class GPUPointCloudRenderer : MonoBehaviour
 
 	private Texture2D depthTexture; //uint16 depth map filled with data from native side
 	private Texture2D colorTextureY; //YUV420P color planes filled with data from native side to be combined in the shader
-	private Texture2D colorTextureU; // width/2, height/2
+	private Texture2D colorTextureU; // width/2, height/2, needs to be unpacked from single UV plane in NV12
 	private Texture2D colorTextureV; // width/2, height/2
 
 	private ComputeBuffer vertexBuffer;
@@ -92,10 +93,10 @@ public class GPUPointCloudRenderer : MonoBehaviour
 
 		// TODO work out what to do about the depth_unit *60 hack
 		//sample config for L515 320x240 with depth units resulting in 6.4 mm precision and 6.5472 m range (alignment to depth)
-		//DepthConfig dc = new DepthConfig { ppx = 168.805f, ppy = 125.068f, fx = 229.699f, fy = 230.305f, depth_unit = 0.0001f, min_margin = 0.19f, max_margin = 0.01f };
+		DepthConfig dc = new DepthConfig { ppx = 168.805f, ppy = 125.068f, fx = 229.699f, fy = 230.305f, depth_unit = 0.0001f, min_margin = 0.19f, max_margin = 0.01f };
 		//sample config for L515 640x480 with depth units resulting in 2.5 mm precision and 2.5575 m range (alignment to depth)
-		//DepthConfig dc = new DepthConfig { ppx = 358.781f, ppy = 246.297f, fx = 470.941f, fy = 470.762f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f };
-		DepthConfig dc = new DepthConfig { ppx = 319.809f, ppy = 236.507f, fx = 606.767f, fy = 607.194f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f };
+		//?DepthConfig dc = new DepthConfig { ppx = 358.781f, ppy = 246.297f, fx = 470.941f, fy = 470.762f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f };
+		//DepthConfig dc = new DepthConfig { ppx = 319.809f, ppy = 236.507f, fx = 606.767f, fy = 607.194f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f };
 
 		SetDepthConfig(dc);
 	}
@@ -172,12 +173,27 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		if (frame[1].data[0] == IntPtr.Zero)
 			return true; //only depth data is also ok
 
-		// All the YUV data comes in frame 1, but are the data[] planes contiguous after that?
-		int yplane_size = frame[1].linesize[0] * frame[1].height;
+		// All the NV12 texture data comes in frame 1, in 2 planes (Y, full width/ half height UV interleaved)
+		int yplane_size = frame[1].width * frame[1].height;
 		colorTextureY.LoadRawTextureData(frame[1].data[0], yplane_size);
-		colorTextureU.LoadRawTextureData(frame[1].data[1], yplane_size / 4);
-		colorTextureV.LoadRawTextureData(frame[1].data[2], yplane_size / 4);
 
+        // unpack the UV into separate planes
+        unsafe 
+		{
+			NativeArray<byte> uvbytes = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(frame[1].data[1].ToPointer(), yplane_size / 2, Allocator.None);
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+			NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref uvbytes, AtomicSafetyHandle.Create());
+#endif
+			byte[] ubytes = colorTextureU.GetRawTextureData();
+			byte[] vbytes = colorTextureV.GetRawTextureData();
+			for (int i=0; i<yplane_size / 4; i++)
+            {
+				ubytes[i] = uvbytes[2 * i];
+				vbytes[i] = uvbytes[2 * i + 1];
+			}
+			colorTextureU.LoadRawTextureData(ubytes);
+			colorTextureV.LoadRawTextureData(vbytes);
+		}
 		return true;
 	}
 
@@ -197,10 +213,11 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		{
 			if (frame[1].data[0] != IntPtr.Zero)
 			{
-				Debug.Log(string.Format("Texture data: frames:{0}, planes({1}, {2}, {3})", frame.Length, frame[1].data[0], frame[1].data[1], frame[1].data[2]));
+				Debug.Log(string.Format("Texture data: format:{0}, planes({1}, {2}, {3}), sizes:({4}, {5}, {6})", frame[1].format, frame[1].data[0], frame[1].data[1], frame[1].data[2], frame[1].linesize[0], frame[1].linesize[1], frame[1].linesize[2]));
 				colorTextureY = new Texture2D(frame[1].width, frame[1].height, TextureFormat.R8, false);
 				colorTextureU = new Texture2D(frame[1].width / 2, frame[1].height / 2, TextureFormat.R8, false);
 				colorTextureV = new Texture2D(frame[1].width / 2, frame[1].height / 2, TextureFormat.R8, false);
+				
 			}
 			else
 			{   //in case only depth data is coming prepare dummy color textures
@@ -214,14 +231,14 @@ public class GPUPointCloudRenderer : MonoBehaviour
 				colorTextureU = new Texture2D(frame[0].width / 2, frame[0].height / 2, TextureFormat.R8, false);
 				data = new byte[frame[0].width * frame[0].height / 4];
 				for (int i = 0; i < data.Length; i++)
-					data[i] = 0xFF;
+					data[i] = 0x80;
 				colorTextureU.SetPixelData(data, 0, 0);
 				colorTextureU.Apply();
 
 				colorTextureV = new Texture2D(frame[0].width / 2, frame[0].height / 2, TextureFormat.R8, false);
 				data = new byte[frame[0].width * frame[0].height / 4];
 				for (int i = 0; i < data.Length; i++)
-					data[i] = 0xFF;
+					data[i] = 0x80;
 				colorTextureV.SetPixelData(data, 0, 0);
 				colorTextureV.Apply();
 			}
