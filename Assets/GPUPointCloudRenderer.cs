@@ -32,9 +32,6 @@ public class GPUPointCloudRenderer : MonoBehaviour
 	private string ip = "";
 	private ushort port = 9766;
 
-	public ComputeShader unprojectionShader;
-	public Shader pointCloudShader;
-
 	private IntPtr unhvd;
 
 	private UNHVD.unhvd_frame[] frame = new UNHVD.unhvd_frame[]
@@ -48,8 +45,12 @@ public class GPUPointCloudRenderer : MonoBehaviour
 	private Texture2D colorTextureU; // width/2, height/2, needs to be unpacked from single UV plane in NV12
 	private Texture2D colorTextureV; // width/2, height/2
 
-	private ComputeBuffer vertexBuffer;
-	private ComputeBuffer argsBuffer;
+	private ComputeBuffer vertexBuffer; // float3, RWStructuredBuffer in compute shader
+	private ComputeBuffer indexBuffer;  // uint3 (indices of triangle vertices), AppendStructuredBuffer in compute shader
+	private ComputeBuffer argsBuffer;   // indirect rendering args
+
+	public ComputeShader unprojectionShader;
+	public Shader pointCloudShader;
 
 	private Material material;
 
@@ -64,8 +65,6 @@ public class GPUPointCloudRenderer : MonoBehaviour
 			new UNHVD.unhvd_hw_config{hardware=this.hardwareTexture, codec=this.codecTexture, device=this.deviceTexture, pixel_format=this.pixel_formatTexture, width=this.widthTexture, height=this.heightTexture, profile=1}
 		};
 
-		IntPtr nullPtr = IntPtr.Zero;
-
 		unhvd = UNHVD.unhvd_init(ref net_config, hw_config, hw_config.Length, IntPtr.Zero);
 
 		if (unhvd == IntPtr.Zero)
@@ -75,8 +74,10 @@ public class GPUPointCloudRenderer : MonoBehaviour
 			return;
 		}
 
+		// Compute Shader Setup
 		argsBuffer = new ComputeBuffer(4, sizeof(int), ComputeBufferType.IndirectArguments);
 		//vertex count per instance, instance count, start vertex location, start instance location
+		//position 0 will be overwritten with index buffer count after shader runs
 		//see https://docs.unity3d.com/2019.4/Documentation/ScriptReference/Graphics.DrawProceduralIndirectNow.html
 		argsBuffer.SetData(new int[] { 0, 1, 0, 0 });
 
@@ -126,6 +127,9 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		if (vertexBuffer != null)
 			vertexBuffer.Release();
 
+		if (indexBuffer != null)
+			indexBuffer.Release();
+
 		if (argsBuffer != null)
 			argsBuffer.Release();
 
@@ -151,14 +155,20 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		if (!updateNeeded)
 			return;
 
+		// native code in PrepareTextures() sets the texture data, so Apply() it here
 		depthTexture.Apply(false);
 		colorTextureY.Apply(false);
 		colorTextureU.Apply(false);
 		colorTextureV.Apply(false);
 
-		vertexBuffer.SetCounterValue(0);
+		indexBuffer.SetCounterValue(0);
+		// create width/8 * height/8 thread groups, e.g. 40*30 = 1200 groups for 320x240
+		// each thread group will be set up as 8x8 threads
 		unprojectionShader.Dispatch(0, frame[0].width / 8, frame[0].height / 8, 1);
-		ComputeBuffer.CopyCount(vertexBuffer, argsBuffer, 0);
+		ComputeBuffer.CopyCount(indexBuffer, argsBuffer, 0); 
+		// TODO check if I should make a triangle index struct and append indices in threes, and 
+		// perform CopyCount as number of triangles as instances rather than one instance of thousands
+		// of indices. If so, change CopyCount offset in bytes to 4 maybe to write the second int in the buffer.
 	}
 
 	private bool PrepareTextures()
@@ -205,8 +215,16 @@ public class GPUPointCloudRenderer : MonoBehaviour
 			depthTexture = new Texture2D(frame[0].width, frame[0].height, TextureFormat.R16, false);
 			unprojectionShader.SetTexture(0, "depthTexture", depthTexture);
 
-			vertexBuffer = new ComputeBuffer(frame[0].width * frame[0].height, 2 * sizeof(float) * 4, ComputeBufferType.Append);
+			// vertex buffer holds position(float4) and color(float4)
+			vertexBuffer = new ComputeBuffer(frame[0].width * frame[0].height, 2 * sizeof(float) * 4, ComputeBufferType.Structured);
 			unprojectionShader.SetBuffer(0, "vertices", vertexBuffer);
+
+			// index buffer holds triangle indices (up to width-1 * height-1 * 2, element size 3 * uint)
+			indexBuffer = new ComputeBuffer((frame[0].width - 1) * (frame[0].height - 1) * 2, 3 * sizeof(uint), ComputeBufferType.Append | ComputeBufferType.Structured);
+			// FIXME just set 3 indices from a central triangle for starters
+			indexBuffer.SetData(new uint[] { 120 * 320 + 160, 121 * 320 + 160, 120 * 320 + 159 }); // y increases downwards?
+			//indexBuffer.SetData(new uint[] { 120 * 320 + 160, 121 * 320 + 160, 121 * 320 + 159 }); // y increases upwards?
+			unprojectionShader.SetBuffer(0, "indices", indexBuffer);
 		}
 
 		if (colorTextureY == null || colorTextureY.width != frame[1].width || colorTextureY.height != frame[1].height)
@@ -262,7 +280,8 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		material.SetPass(0);
 		material.SetMatrix("transform", transform.localToWorldMatrix);
 		material.SetBuffer("vertices", vertexBuffer);
+		//material.SetBuffer("indices", indexBuffer);
 
-		Graphics.DrawProceduralIndirectNow(MeshTopology.Points, argsBuffer);
+		Graphics.DrawProceduralIndirectNow(MeshTopology.Triangles, indexBuffer, argsBuffer);
 	}
 }
