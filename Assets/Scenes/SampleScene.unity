@@ -893,6 +893,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1b2d699177dad104e9042496fd669557, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  computeShader: {fileID: 7200000, guid: b1d78ff2c6e17174eb0104c2023a43e1, type: 3}
   shader: {fileID: 4800000, guid: c3eacc6c0ef36e94583fbeff5bcc18c0, type: 3}
 --- !u!4 &1737814987
 Transform:

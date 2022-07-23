@@ -4,7 +4,7 @@ using UnityEngine;
 
 public class SimpleGeometryGPU : MonoBehaviour
 {
-    //public ComputeShader computeShader;
+    public ComputeShader computeShader;
     public Shader shader;
     private Material material;
 
@@ -18,7 +18,9 @@ public class SimpleGeometryGPU : MonoBehaviour
         // with the shader how I expected...
         vertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Raw, 3, sizeof(float) * 4);
         vertexBuffer.SetData(new float[] { 1, 0, 0 , 1, 0, 0, 0, 1, 0, 1, 0, 1 });
-        //computeShader.SetBuffer(0, "vertices", vertexBuffer);
+        computeShader.SetBuffer(0, "vertices", vertexBuffer);
+
+        computeShader.Dispatch(0, 3, 1, 1); // TODO: try 3,1,1 and dispatch compute kernel once for each vertex
     }
 
     // Update is called once per frame
