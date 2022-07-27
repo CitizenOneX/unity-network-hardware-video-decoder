@@ -45,6 +45,9 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 	void Awake()
 	{
+		// trim down the debug messages to not include stack traces
+		Application.SetStackTraceLogType(LogType.Log, StackTraceLogType.None);
+
 		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config { ip = this.ip, port = this.port, timeout_ms = this.timeout_ms };
 
 		UNHVD.unhvd_hw_config[] hw_config = new UNHVD.unhvd_hw_config[]
@@ -90,22 +93,30 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 	{
 		if (UNHVD.unhvd_get_frame_begin(unhvd, frame) == 0)
 		{
-			AdaptTexture();
-			var data = colorTexture.GetRawTextureData<byte>();
-			int pixels = frame[1].width * frame[1].height;
-			unsafe
+			// if a color texture frame is present, ensure existing color Texture2D
+			// matches width/height then copy data over
+			if (frame[1].data != null)
 			{
-				for (int index = 0; index < pixels; index++)
+				AdaptTexture();
+				var data = colorTexture.GetRawTextureData<byte>();
+				int pixels = frame[1].width * frame[1].height;
+				unsafe
 				{
-					// NV12 has a Y plane and a UV-interleaved plane
-					// load the w x h luma first as grayscale
-					byte Y = ((byte*)frame[1].data[0])[index];
-					data[3 * index] = Y;
-					data[3 * index + 1] = Y;
-					data[3 * index + 2] = Y;
+					for (int index = 0; index < pixels; index++)
+					{
+						// NV12 has a Y plane and a UV-interleaved plane
+						// load the w x h luma first as grayscale
+						byte Y = ((byte*)frame[1].data[0])[index];
+						data[3 * index] = Y;
+						data[3 * index + 1] = Y;
+						data[3 * index + 2] = Y;
+					}
 				}
+				colorTexture.Apply(false);
 			}
-			colorTexture.Apply (false);
+
+			// if audio is present...
+			// TODO
 		}
 
 		if (UNHVD.unhvd_get_frame_end (unhvd) != 0)
