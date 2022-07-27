@@ -36,8 +36,9 @@ public class GPUPointCloudRenderer : MonoBehaviour
 
 	private UNHVD.unhvd_frame[] frame = new UNHVD.unhvd_frame[]
 	{
-		new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] },
-		new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] }
+		new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] }, // depth
+		new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] }, // color
+		new UNHVD.unhvd_frame{ data=new System.IntPtr[1], linesize=new int[3] }  // aux (raw PCM audio)
 	};
 
 	private Texture2D depthTexture; //uint16 depth map filled with data from native side
@@ -65,7 +66,7 @@ public class GPUPointCloudRenderer : MonoBehaviour
 			new UNHVD.unhvd_hw_config{hardware=this.hardwareTexture, codec=this.codecTexture, device=this.deviceTexture, pixel_format=this.pixel_formatTexture, width=this.widthTexture, height=this.heightTexture, profile=1}
 		};
 
-		unhvd = UNHVD.unhvd_init(ref net_config, hw_config, hw_config.Length, IntPtr.Zero);
+		unhvd = UNHVD.unhvd_init(ref net_config, hw_config, hw_config.Length, 1, IntPtr.Zero); // added the aux channel here as well
 
 		if (unhvd == IntPtr.Zero)
 		{

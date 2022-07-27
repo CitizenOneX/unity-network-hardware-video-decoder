@@ -90,7 +90,7 @@ public class UNHVD
 	#else
 	[DllImport ("unhvd")]
 	#endif
-	public static extern System.IntPtr unhvd_init(ref unhvd_net_config net_config, [In]unhvd_hw_config[] hw_configs, int hw_size, ref unhvd_depth_config depth_config);
+	public static extern System.IntPtr unhvd_init(ref unhvd_net_config net_config, [In]unhvd_hw_config[] hw_configs, int hw_size, int aux_size, ref unhvd_depth_config depth_config);
 
 	///Return Type: unhvd*
 	///net_config: unhvd_net_config*
@@ -101,18 +101,18 @@ public class UNHVD
 	#else
 	[DllImport ("unhvd")]
 	#endif
-	private static extern System.IntPtr unhvd_init(ref unhvd_net_config net_config, ref unhvd_hw_config hw_config, int hw_size, System.IntPtr depth_config) ;
+	private static extern System.IntPtr unhvd_init(ref unhvd_net_config net_config, ref unhvd_hw_config hw_config, int hw_size, int aux_size, System.IntPtr depth_config);
 
 	#if (UNITY_IPHONE || UNITY_WEBGL) && !UNITY_EDITOR
 	[DllImport ("__Internal")]
 	#else
 	[DllImport ("unhvd")]
 	#endif
-	public static extern System.IntPtr unhvd_init(ref unhvd_net_config net_config, [In]unhvd_hw_config[] hw_configs, int hw_size, System.IntPtr depth_config);
+	public static extern System.IntPtr unhvd_init(ref unhvd_net_config net_config, [In]unhvd_hw_config[] hw_configs, int hw_size, int aux_size, System.IntPtr depth_config);
 
 	public static System.IntPtr unhvd_init(ref unhvd_net_config net_config, ref unhvd_hw_config hw_config) 
 	{
-		return unhvd_init(ref net_config, ref hw_config, 1, System.IntPtr.Zero);
+		return unhvd_init(ref net_config, ref hw_config, 1, 0, System.IntPtr.Zero);
 	}
 
 	/// Return Type: void

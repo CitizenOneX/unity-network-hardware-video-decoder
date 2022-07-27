@@ -82,7 +82,7 @@ public class PointCloudRenderer : MonoBehaviour
 
 		UNHVD.unhvd_depth_config depth_config = new UNHVD.unhvd_depth_config{ppx = dc.ppx, ppy = dc.ppy, fx = dc.fx, fy = dc.fy, depth_unit =  dc.depth_unit, min_margin = dc.min_margin, max_margin = dc.max_margin};
 
-		unhvd=UNHVD.unhvd_init (ref net_config, hw_config, hw_config.Length, ref depth_config);
+		unhvd=UNHVD.unhvd_init (ref net_config, hw_config, hw_config.Length, 0, ref depth_config);
 
 		if (unhvd == IntPtr.Zero)
 		{
