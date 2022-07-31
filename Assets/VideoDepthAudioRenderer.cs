@@ -46,6 +46,7 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 	private readonly int audioSampleRate = 22050;
 	private int position = 0;
+	private readonly int audioSampleBufferLength = 4096;
 
 	void Awake()
 	{
@@ -81,10 +82,10 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 	void Start()
 	{
 		// create a streaming audio clip that will call back every time it needs new samples
-		//AudioClip myClip = AudioClip.Create("AudioStream", 8192, 1, this.audioSampleRate, true, OnAudioRead, OnAudioSetPosition);
-		//AudioSource aud = GetComponent<AudioSource>();
-		//aud.clip = myClip;
-		//aud.Play(); // TODO reinstate
+		AudioClip myClip = AudioClip.Create("AudioStream", this.audioSampleBufferLength, 1, this.audioSampleRate, true, OnAudioRead, OnAudioSetPosition);
+		AudioSource aud = GetComponent<AudioSource>();
+		aud.clip = myClip;
+		aud.Play(); // TODO reinstate
 	}
 
     private void OnAudioSetPosition(int newPosition)
@@ -114,34 +115,50 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 		// TODO need to check on Android whether it requests 4096 each time or some other amount
 		Debug.Log("OnAudioRead called data.Length=" + data.Length);
 
-		if (false)//(frame != null && frame[2].data != null && frame[2].data[0] != null)
+		// if the audio data frames are well-formed I shouldn't need to check all of these things
+		if (frame != null && frame[2].data != null && frame[2].data[0] != null && frame[2].linesize != null && frame[2].linesize[0] != 0)
         {
 			unsafe
 			{
-				// First cast the native frame bytes to signed 16-bit integers (shorts)
+				Debug.Log("Frame linesize=" + frame[2].linesize[0] + ", Position=" + position);
+				// Cast the data to a float native array (up to 4096 samples)
 				// If prior calls have asked for less than a full frame, then we'll have an offset pointer into the native frame data
 				// Take data.Length samples from the position of the offset
 				// Then we need to convert the shorts to floats (promote to float and divide by 2^15)
 				// TODO Check if little-endian or big-endian (not sure, might be different on Windows and Android too)
 				// For what it's worth, on Windows it looks like interpreting the data[0] block as (signed) shorts is right - good endianness!
-				NativeArray<short> audioSamples = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<short>(
-					IntPtr.Add(frame[2].data[0], position * 2).ToPointer(), Math.Min(data.Length, frame[2].linesize[0] - position), Allocator.None);
+				int positionInBytes = position * UnsafeUtility.SizeOf<float>();
+				NativeArray<float> audioSamples = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<float>(
+					IntPtr.Add(frame[2].data[0], positionInBytes).ToPointer(), Math.Min(data.Length, frame[2].linesize[0] - positionInBytes), Allocator.None);
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
 				NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref audioSamples, AtomicSafetyHandle.Create());
 #endif
-				// not sure if the compiler will optimise this into the best version (vectorised, reverse instructions?)
-				for (int i=0; i<audioSamples.Length; i++)
+
+				// copy the data back to the managed array
+				// can't use CopyTo if the lengths aren't the same
+				if (audioSamples.Length == data.Length)
+				{
+					audioSamples.CopyTo(data);
+				}
+				else
                 {
-					// TODO reverse the bytes of audioSamples[i] first? On some/all platforms?
-					data[i] = audioSamples[i] / 32768.0f;
-                }
+					// copy the sample data that we do have
+					int byteLength = audioSamples.Length * UnsafeUtility.SizeOf<float>();
+					void* managedBuffer = UnsafeUtility.AddressOf(ref data[0]);
+					void* nativeBuffer = audioSamples.GetUnsafePtr();
+					UnsafeUtility.MemCpy(managedBuffer, nativeBuffer, byteLength);
+
+					if (audioSamples.Length < data.Length)
+					{
+						// clear out the remainder of the array (silence) for buffer underrun?
+						Array.Clear(data, audioSamples.Length, data.Length - audioSamples.Length);
+						Debug.Log("OnAudioRead insufficient data available: " + audioSamples.Length);
+					}
+				}
 
 				// advance the offset position in the incoming native audio frame by the amount we just copied over
 				// so that on the next request from Unity we can send the next part
-				position = (position + data.Length) % 4096; // TODO - or audioSamples.Length?! Probably don't want to fall behind
-
-				// TODO if audioSamples.Length < data.Length
-				// clear out the remainder of the array (silence) for buffer underrun?
+				position += data.Length; // TODO - or audioSamples.Length?! Probably don't want to fall behind
 			}
 		}
         else
