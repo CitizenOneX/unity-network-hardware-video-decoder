@@ -46,9 +46,10 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 	private Texture2D colorTexture;
 
 	private const int audioSampleRate = 22050;
-	private const int audioSampleBufferLength = 16384;
+	private const int audioSampleBufferLength = 8192;
 	private int position = 0;
 	private float[] audioFrontBuffer;
+	private float[] audioMiddleBuffer;
 	private float[] audioBackBuffer;
 	private volatile bool audioBackBufferFull = false;
 	private readonly object audioBufferLock = new object();
@@ -88,8 +89,9 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 	void Start()
 	{
-		// create a double buffer to hold received audio data
+		// create a triple buffer to hold received audio data
 		audioFrontBuffer = new float[audioSampleBufferLength];
+		audioMiddleBuffer = new float[audioSampleBufferLength];
 		audioBackBuffer = new float[audioSampleBufferLength];
 
 		// create a streaming audio clip that will call back every time it needs new samples
@@ -105,9 +107,12 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 			// only seems to be called to set position to 0 (i.e. when the looping sample loops again)
 			this.position = newPosition;
 
-			// swap the front/back buffers
+			// cycle the front/middle/back buffers
 			//Debug.Log("OnAudioSetPosition called newPosition=" + newPosition + ", swapping buffers");
-			Interlocked.Exchange(ref audioBackBuffer, audioFrontBuffer);
+			float[] temp = audioFrontBuffer;
+			audioFrontBuffer = audioMiddleBuffer;
+			audioMiddleBuffer = audioBackBuffer;
+			audioBackBuffer = temp;
 			audioBackBufferFull = false;
 		}
 	}
@@ -198,8 +203,12 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 				{
 					if (audioBackBufferFull)
 					{
-						//Debug.Log("Back buffer already full, keep up!");
-						Interlocked.Exchange(ref audioBackBuffer, audioFrontBuffer);
+						Debug.Log("Back buffer already full, keep up!");
+						// cycle the front/middle/back buffers
+						float[] temp = audioFrontBuffer;
+						audioFrontBuffer = audioMiddleBuffer;
+						audioMiddleBuffer = audioBackBuffer;
+						audioBackBuffer = temp;
 						audioBackBufferFull = false;
 					}
 
