@@ -1,12 +1,13 @@
 ﻿using System;
 using System.Threading;
 using Unity.Collections;
+using UnityEngine;
 
 /// <summary>
-/// Represents a circular buffer of T items
+/// Represents a circular buffer of up to Capacity of type T unmanaged items (e.g. floats)
 /// </summary>
 /// <typeparam name="T">The type of item</typeparam>
-public class CircularBuffer<T> where T : notnull
+public class CircularBuffer<T> where T : unmanaged
 {
     protected T[] Buffer;
     protected int Head;
@@ -14,10 +15,10 @@ public class CircularBuffer<T> where T : notnull
     protected int InternalCapacity;
     protected int InternalSize;
 
-    public CircularBuffer(int initialCapacity)
+    public CircularBuffer(int capacity)
     {
-        Buffer = new T[initialCapacity];
-        InternalCapacity = initialCapacity;
+        Buffer = new T[capacity];
+        InternalCapacity = capacity;
         InternalSize = 0;
         Head = 0;
         Tail = 0;
@@ -29,15 +30,15 @@ public class CircularBuffer<T> where T : notnull
     public int Capacity => InternalCapacity;
 
     /// <summary>
-    /// Gets the current capacity of allocated buffer
+    /// Gets the current size used in the buffer, 0 <= CurrentSize <= Capacity
     /// </summary>
-    public int Size => InternalSize;
+    public int CurrentSize => InternalSize;
 
     /// <summary>
-    /// Gets or sets the value by index
+    /// Gets or sets the value by logical index
     /// </summary>
-    /// <param name="index">The index of stored value</param>
-    /// <returns>Returns the value stored via index</returns>
+    /// <param name="index">The logical index of stored value</param>
+    /// <returns>Returns the value stored via logical index</returns>
     public T this[int index]
     {
         get { return GetByIndex(index); }
@@ -45,9 +46,9 @@ public class CircularBuffer<T> where T : notnull
     }
 
     /// <summary>
-    /// Gets the value by index
+    /// Gets the value by logical index
     /// </summary>
-    /// <param name="index">The index of stored value</param>
+    /// <param name="index">The logical index of stored value</param>
     /// <returns>Returns the value stored via index</returns>
     protected T GetByIndex(int index)
     {
@@ -66,7 +67,7 @@ public class CircularBuffer<T> where T : notnull
     /// <summary>
     /// Sets the value by index
     /// </summary>
-    /// <param name="index">The index of stored value</param>
+    /// <param name="index">The logical index of stored value</param>
     /// <param name="value">The value to store via index</param>
     protected void SetByIndex(int index, T value)
     {
@@ -90,39 +91,6 @@ public class CircularBuffer<T> where T : notnull
                 : InternalCapacity - Tail;
 
     /// <summary>
-    /// Resets the buffer to new and bigger capacity
-    /// </summary>
-    /// <param name="capacity">The new capacity of buffer</param>
-    /// <returns>Return if buffer was successfully resized</returns>
-    protected virtual bool ResetCapacity(int capacity)
-    {
-        // check if still need to resize the buffer
-        var canResetCapacity = capacity > InternalCapacity;
-        if (canResetCapacity)
-        {
-            var newBuffer = new T[capacity];
-
-            if (Tail < Head)
-            {
-                Array.Copy(Buffer, Tail, newBuffer, 0, Head - Tail);
-            }
-            else
-            {
-                int tillEndCount = InternalCapacity - Tail;
-                Array.Copy(Buffer, Tail, newBuffer, 0, tillEndCount);
-                Array.Copy(Buffer, 0, newBuffer, tillEndCount, Head);
-            }
-
-            Interlocked.Exchange(ref InternalCapacity, capacity);
-            Interlocked.Exchange(ref Head, Size);
-            Interlocked.Exchange(ref Tail, 0);
-            Buffer = newBuffer;
-        }
-
-        return canResetCapacity;
-    }
-
-    /// <summary>
     /// Reads the specified amount of data from buffer
     /// </summary>
     /// <param name="buffer">The destination buffer to write data to</param>
@@ -131,18 +99,19 @@ public class CircularBuffer<T> where T : notnull
     /// <returns>Return amount of data read and -1 if no data was read</returns>
     public virtual int Read(T[] buffer, int offset, int count)
     {
-        // we need to check if there is enough space left for new buffer
+        // caller shouldn't ask for more elements than the whole buffer's capacity, that's an error
         if (InternalCapacity < count)
             throw new InvalidOperationException("The destination count is larget than the capacity.");
 
         // if there is buffer underrun then we can't provide count elements
-        // so for now pad out the rest with nulls/zeroes
+        // since we return the count of copied elements, the caller can pad out the 
+        // rest with zeroes if needed
+        // TODO remove after testing, caller can watch for this and log if required
         if (InternalSize < count)
         {
-            // TODO 
+            Debug.Log("Buffer underrun");
         }
 
-        // we should append buffer if there is enough space between _head and tail or _head and end of array
         // # - used space
         // _ - free space
         // h - head marker
@@ -155,7 +124,7 @@ public class CircularBuffer<T> where T : notnull
         int tillEndCount = GetTillEndCount();
         if (Tail < Head || tillEndCount > count)
         {
-            // case 1, 2 or 3
+            // case 2, 3, or 1
             Array.Copy(Buffer, Tail, buffer, offset, count);
             Interlocked.Add(ref Tail, count);
         }
@@ -178,15 +147,12 @@ public class CircularBuffer<T> where T : notnull
     /// <param name="buffer">The source buffer to read data from</param>
     /// <param name="offset">The offset in the source buffer to start reading from</param>
     /// <param name="count">The amount of data to be written</param>
-    public virtual void Write(T[] buffer, int offset, int count)
+    public virtual void Write(NativeArray<T> buffer, int offset, int count)
     {
         // we need to check if there is enough space left for new buffer
         if (InternalCapacity - InternalSize < count)
         {
             throw new Exception("No free space. Extension is not allowed.");
-
-            if (!ResetCapacity(Math.Max(InternalCapacity, count) * 2))
-                throw new Exception("Failed to reset the capacity.");
         }
 
         // we should append buffer if there is enough space between _head and tail or _head and end of array

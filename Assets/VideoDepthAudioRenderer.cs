@@ -44,9 +44,13 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 	private Texture2D colorTexture;
 
-	private readonly int audioSampleRate = 22050;
+	private const int audioSampleRate = 22050;
+	private const int audioSampleBufferLength = 8192;
 	private int position = 0;
-	private readonly int audioSampleBufferLength = 4096;
+	private CircularBuffer<float> audioBuffer;
+
+
+	private int frameNumber = 0; // TODO just testing the number of times things are called
 
 	void Awake()
 	{
@@ -81,11 +85,13 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 	void Start()
 	{
+		// create a buffer to hold received audio data
+		audioBuffer = new CircularBuffer<float>(audioSampleBufferLength);
+
 		// create a streaming audio clip that will call back every time it needs new samples
-		AudioClip myClip = AudioClip.Create("AudioStream", this.audioSampleBufferLength, 1, this.audioSampleRate, true, OnAudioRead, OnAudioSetPosition);
 		AudioSource aud = GetComponent<AudioSource>();
-		aud.clip = myClip;
-		aud.Play(); // TODO reinstate
+		aud.clip = AudioClip.Create("AudioStream", audioSampleBufferLength, 1, audioSampleRate, true, OnAudioRead, OnAudioSetPosition);
+		aud.Play();
 	}
 
     private void OnAudioSetPosition(int newPosition)
@@ -115,6 +121,17 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 		// TODO need to check on Android whether it requests 4096 each time or some other amount
 		Debug.Log("OnAudioRead called data.Length=" + data.Length);
 
+		int readCount = audioBuffer.Read(data, 0, data.Length);
+		
+		if (readCount < data.Length)
+		{
+			// clear out the remainder of the array (silence) for buffer underrun?
+			Array.Clear(data, readCount, data.Length - readCount);
+			Debug.Log("OnAudioRead insufficient data available: " + readCount);
+		}
+
+
+		/*
 		// if the audio data frames are well-formed I shouldn't need to check all of these things
 		if (frame != null && frame[2].data != null && frame[2].data[0] != null && frame[2].linesize != null && frame[2].linesize[0] != 0)
         {
@@ -167,10 +184,10 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 			// but if not
 			Array.Clear(data, 0, data.Length);
 		}
-
+		*/
 	}
 
-    void OnDestroy()
+	void OnDestroy()
 	{
 		UNHVD.unhvd_close (unhvd);
 	}
@@ -190,10 +207,11 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 	{
 		if (UNHVD.unhvd_get_frame_begin(unhvd, frame) == 0)
 		{
+			Debug.Log("----" + ++frameNumber);
 			// if a color texture frame is present, ensure existing color Texture2D
 			// matches width/height then copy data over
 			// looks like data is hanging around in data[0] so I'll check linesizes are non-zero too
-			if (frame[1].data != null && frame[1].data[0] != null && frame[1].linesize != null && frame[1].linesize[0] != 0)
+			if (frame[1].data != null && frame[1].data[0] != null && frame[1].linesize != null && frame[1].linesize[0] > 0)
 			{
 				AdaptTexture();
 				var data = colorTexture.GetRawTextureData<byte>();
@@ -214,7 +232,25 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 			}
 
 			// if audio is present...
-			// TODO
+			// TODO maybe copy to a threadsafe ringbuffer so the AudioClip can pull the data as it needs to
+			if (frame[2].data != null && frame[2].data[0] != null && frame[2].linesize != null && frame[2].linesize[0] > 0)
+            {
+				unsafe
+                {
+					// cast the incoming audio frame to a float array
+					NativeArray<float> audioSamples = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<float>(
+						frame[2].data[0].ToPointer(), 
+						Math.Min(audioSampleBufferLength * UnsafeUtility.SizeOf<float>(), frame[2].linesize[0]), 
+						Allocator.None);
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+					NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref audioSamples, AtomicSafetyHandle.Create());
+#endif
+
+					// copy the float array to the circular audio buffer, up to the full capacity (i.e. overwrite old samples if necessary)
+					audioBuffer.Write(audioSamples, 0, audioBuffer.Capacity);
+				}
+			}
 		}
 
 		if (UNHVD.unhvd_get_frame_end(unhvd) != 0)
