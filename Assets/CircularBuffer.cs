@@ -170,14 +170,14 @@ public class CircularBuffer<T> where T : unmanaged
         {
             // case 1 or 2
             // TODO PH - BUG: Out of bounds on copy.
-            Array.Copy(buffer, offset, Buffer, Head, count);
+            //Array.Copy(buffer, offset, Buffer, Head, count);
             Interlocked.Add(ref Head, count);
         }
         else
         {
             // case 3
-            Array.Copy(buffer, offset, Buffer, Head, tillEndCount);
-            Array.Copy(buffer, offset + tillEndCount, Buffer, 0, count - tillEndCount);
+            //Array.Copy(buffer, offset, Buffer, Head, tillEndCount);
+            //Array.Copy(buffer, offset + tillEndCount, Buffer, 0, count - tillEndCount);
             Interlocked.Exchange(ref Head, count - tillEndCount);
         }
 

@@ -10,6 +10,7 @@
  */
 
 using System;
+using System.Threading;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
@@ -45,10 +46,12 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 	private Texture2D colorTexture;
 
 	private const int audioSampleRate = 22050;
-	private const int audioSampleBufferLength = 8192;
+	private const int audioSampleBufferLength = 16384;
 	private int position = 0;
-	private CircularBuffer<float> audioBuffer;
-
+	private float[] audioFrontBuffer;
+	private float[] audioBackBuffer;
+	private volatile bool audioBackBufferFull = false;
+	private readonly object audioBufferLock = new object();
 
 	private int frameNumber = 0; // TODO just testing the number of times things are called
 
@@ -85,8 +88,9 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 	void Start()
 	{
-		// create a buffer to hold received audio data
-		audioBuffer = new CircularBuffer<float>(audioSampleBufferLength);
+		// create a double buffer to hold received audio data
+		audioFrontBuffer = new float[audioSampleBufferLength];
+		audioBackBuffer = new float[audioSampleBufferLength];
 
 		// create a streaming audio clip that will call back every time it needs new samples
 		AudioSource aud = GetComponent<AudioSource>();
@@ -96,9 +100,16 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
     private void OnAudioSetPosition(int newPosition)
     {
-		Debug.Log("OnAudioSetPosition called newPosition=" + newPosition);
-		// only seems to be called to set position to 0 (i.e. when the looping sample loops again)
-		this.position = newPosition;
+        lock (audioBufferLock)
+        {
+			// only seems to be called to set position to 0 (i.e. when the looping sample loops again)
+			this.position = newPosition;
+
+			// swap the front/back buffers
+			//Debug.Log("OnAudioSetPosition called newPosition=" + newPosition + ", swapping buffers");
+			Interlocked.Exchange(ref audioBackBuffer, audioFrontBuffer);
+			audioBackBufferFull = false;
+		}
 	}
 
     private void OnAudioRead(float[] data)
@@ -119,72 +130,14 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 		// Still wondering about whether access to frame[2] needs to be synchronised (or just copy the data pointers and size? will the memory be freed before my use?)
 		// Or whether I need to take a full copy of the frame data as it comes in (it is quite nice if it's a fixed length then)
 		// TODO need to check on Android whether it requests 4096 each time or some other amount
-		Debug.Log("OnAudioRead called data.Length=" + data.Length);
+		//Debug.Log("OnAudioRead called data.Length=" + data.Length);
 
-		int readCount = audioBuffer.Read(data, 0, data.Length);
-		
-		if (readCount < data.Length)
+		// copy data from the current position of the front buffer to the supplied data array
+		lock (audioBufferLock)
 		{
-			// clear out the remainder of the array (silence) for buffer underrun?
-			Array.Clear(data, readCount, data.Length - readCount);
-			Debug.Log("OnAudioRead insufficient data available: " + readCount);
+			Array.Copy(audioFrontBuffer, position, data, 0, data.Length);
+			position += data.Length;
 		}
-
-
-		/*
-		// if the audio data frames are well-formed I shouldn't need to check all of these things
-		if (frame != null && frame[2].data != null && frame[2].data[0] != null && frame[2].linesize != null && frame[2].linesize[0] != 0)
-        {
-			unsafe
-			{
-				Debug.Log("Frame linesize=" + frame[2].linesize[0] + ", Position=" + position);
-				// Cast the data to a float native array (up to 4096 samples)
-				// If prior calls have asked for less than a full frame, then we'll have an offset pointer into the native frame data
-				// Take data.Length samples from the position of the offset
-				// Then we need to convert the shorts to floats (promote to float and divide by 2^15)
-				// TODO Check if little-endian or big-endian (not sure, might be different on Windows and Android too)
-				// For what it's worth, on Windows it looks like interpreting the data[0] block as (signed) shorts is right - good endianness!
-				int positionInBytes = position * UnsafeUtility.SizeOf<float>();
-				NativeArray<float> audioSamples = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<float>(
-					IntPtr.Add(frame[2].data[0], positionInBytes).ToPointer(), Math.Min(data.Length, frame[2].linesize[0] - positionInBytes), Allocator.None);
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-				NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref audioSamples, AtomicSafetyHandle.Create());
-#endif
-
-				// copy the data back to the managed array
-				// can't use CopyTo if the lengths aren't the same
-				if (audioSamples.Length == data.Length)
-				{
-					audioSamples.CopyTo(data);
-				}
-				else
-                {
-					// copy the sample data that we do have
-					int byteLength = audioSamples.Length * UnsafeUtility.SizeOf<float>();
-					void* managedBuffer = UnsafeUtility.AddressOf(ref data[0]);
-					void* nativeBuffer = audioSamples.GetUnsafePtr();
-					UnsafeUtility.MemCpy(managedBuffer, nativeBuffer, byteLength);
-
-					if (audioSamples.Length < data.Length)
-					{
-						// clear out the remainder of the array (silence) for buffer underrun?
-						Array.Clear(data, audioSamples.Length, data.Length - audioSamples.Length);
-						Debug.Log("OnAudioRead insufficient data available: " + audioSamples.Length);
-					}
-				}
-
-				// advance the offset position in the incoming native audio frame by the amount we just copied over
-				// so that on the next request from Unity we can send the next part
-				position += data.Length; // TODO - or audioSamples.Length?! Probably don't want to fall behind
-			}
-		}
-        else
-        {
-			// hopefully data[] is zeroes or whatever it was before, or something sensible...?
-			// but if not
-			Array.Clear(data, 0, data.Length);
-		}
-		*/
 	}
 
 	void OnDestroy()
@@ -203,7 +156,7 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 	}
 
 	// Update is called once per frame
-	void LateUpdate()
+	void Update()
 	{
 		if (UNHVD.unhvd_get_frame_begin(unhvd, frame) == 0)
 		{
@@ -232,23 +185,43 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 			}
 
 			// if audio is present...
-			// TODO maybe copy to a threadsafe ringbuffer so the AudioClip can pull the data as it needs to
 			if (frame[2].data != null && frame[2].data[0] != null && frame[2].linesize != null && frame[2].linesize[0] > 0)
             {
-				unsafe
-                {
-					// cast the incoming audio frame to a float array
-					NativeArray<float> audioSamples = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<float>(
-						frame[2].data[0].ToPointer(), 
-						Math.Min(audioSampleBufferLength * UnsafeUtility.SizeOf<float>(), frame[2].linesize[0]), 
-						Allocator.None);
+				// copy to the back buffer of a double buffer so the AudioClip
+				// can pull the data from the front buffer as it needs to.
+				// If the back buffer is already full and hasn't been swapped
+				// i.e. the AudioClip is running behind
+				// then put the current back buffer in front and write the 
+				// new data to the (new) back buffer. There will be a discontinuity
+				// in the audio being played, but it will start to catch up
+				lock (audioBufferLock)
+				{
+					if (audioBackBufferFull)
+					{
+						//Debug.Log("Back buffer already full, keep up!");
+						Interlocked.Exchange(ref audioBackBuffer, audioFrontBuffer);
+						audioBackBufferFull = false;
+					}
+
+					unsafe
+					{
+						//Debug.Log("Copy incoming audio frame samples: " + frame[2].linesize[0] / UnsafeUtility.SizeOf<float>());
+
+						// cast the incoming audio frame to a float array
+						NativeArray<float> audioSamples = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<float>(
+							frame[2].data[0].ToPointer(),
+							frame[2].linesize[0] / UnsafeUtility.SizeOf<float>(), // must be equal to audioSampleBufferLength though
+							Allocator.None);
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-					NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref audioSamples, AtomicSafetyHandle.Create());
+						NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref audioSamples, AtomicSafetyHandle.Create());
 #endif
 
-					// copy the float array to the circular audio buffer, up to the full capacity (i.e. overwrite old samples if necessary)
-					audioBuffer.Write(audioSamples, 0, audioBuffer.Capacity);
+						// copy the float array to the audio back buffer
+						// Note: incoming frames must be the same size as the buffers here
+						audioSamples.CopyTo(audioBackBuffer);
+						audioBackBufferFull = true;
+					}
 				}
 			}
 		}
