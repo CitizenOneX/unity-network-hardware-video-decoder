@@ -46,10 +46,10 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 	private Texture2D colorTexture;
 
 	private const int AUDIO_SAMPLE_RATE = 22050;
-	private const int AUDIO_SAMPLE_BUFFER_LENGTH = 4096;
+	private const int AUDIO_SAMPLE_BUFFER_LENGTH = 1400;
 	private readonly object audioBufferLock = new object();
 	private int position = 0;
-	private CircularBuffer<float> audioBuffer = new CircularBuffer<float>(10, AUDIO_SAMPLE_BUFFER_LENGTH);
+	private CircularBuffer<float> audioBuffer = new CircularBuffer<float>(20, AUDIO_SAMPLE_BUFFER_LENGTH);
 	AudioSource aud;
 
 	private int frameNumber = 0; // TODO just testing the number of times things are called
@@ -129,7 +129,8 @@ public class VideoDepthAudioRenderer : MonoBehaviour
             {
 				Debug.Log("OnAudioRead Underrun: data.Length=" + data.Length);
 				Array.Clear(data, 0, data.Length);
-            }
+				position += data.Length;
+			}
 			// if we're clearing the rest of the buffer (or taking a whole buffer)
 			// Read off the current element and copy over to the supplied data array
 			else if ((position == 0 && data.Length == AUDIO_SAMPLE_BUFFER_LENGTH) || (position + data.Length) == AUDIO_SAMPLE_BUFFER_LENGTH)
@@ -233,7 +234,7 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 						}
 
 						// just wait a few frames before starting the audio so we don't get all the buffer underrun
-						if (++audioFrameNumber == 5)
+						if (++audioFrameNumber == 15)
 						{
 							Debug.Log("Starting Audio now that we've had 5 audio frames");
 							aud.Play();
