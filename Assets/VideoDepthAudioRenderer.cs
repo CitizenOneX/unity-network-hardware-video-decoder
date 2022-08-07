@@ -59,8 +59,8 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 	{
 		// trim down the debug messages to not include stack traces
 		Application.SetStackTraceLogType(LogType.Log, StackTraceLogType.None);
-		//NativeLeakDetection.Mode = NativeLeakDetectionMode.EnabledWithStackTrace; // TODO does this add 40ms per frame in the editor?
-		NativeLeakDetection.Mode = NativeLeakDetectionMode.Disabled;
+		NativeLeakDetection.Mode = NativeLeakDetectionMode.EnabledWithStackTrace;
+		//NativeLeakDetection.Mode = NativeLeakDetectionMode.Disabled;
 
 		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config { ip = this.ip, port = this.port, timeout_ms = this.timeout_ms };
 
