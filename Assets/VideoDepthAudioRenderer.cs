@@ -59,6 +59,8 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 	{
 		// trim down the debug messages to not include stack traces
 		Application.SetStackTraceLogType(LogType.Log, StackTraceLogType.None);
+		//NativeLeakDetection.Mode = NativeLeakDetectionMode.EnabledWithStackTrace; // TODO does this add 40ms per frame in the editor?
+		NativeLeakDetection.Mode = NativeLeakDetectionMode.Disabled;
 
 		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config { ip = this.ip, port = this.port, timeout_ms = this.timeout_ms };
 
@@ -157,7 +159,7 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 		if (colorTexture == null || colorTexture.width != frame[1].width || colorTexture.height != frame[1].height)
 		{
 			Debug.Log(string.Format("Texture plane format: {0} linesizes: ({1}, {2}, {3})", frame[1].format, frame[1].linesize[0], frame[1].linesize[1], frame[1].linesize[2]));
-			colorTexture = new Texture2D (frame[1].width, frame[1].height, TextureFormat.RGB24, false);
+			colorTexture = new Texture2D (frame[1].width, frame[1].height, TextureFormat.R8, false);
 			GetComponent<Renderer> ().material.mainTexture = colorTexture;
 		}
 	}
@@ -165,6 +167,7 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 	// Update is called once per frame
 	void Update()
 	{
+		
 		if (UNHVD.unhvd_get_frame_begin(unhvd, frame) == 0)
 		{
 			++frameNumber;
@@ -177,22 +180,25 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 				//Debug.Log("---- video frame: " + frameNumber);
 				AdaptTexture();
 				var data = colorTexture.GetRawTextureData<byte>();
-				int pixels = frame[1].width * frame[1].height;
-				unsafe
-				{
-					for (int index = 0; index < pixels; index++)
-					{
-						// NV12 has a Y plane and a UV-interleaved plane
-						// load the w x h luma first as grayscale
-						byte Y = ((byte*)frame[1].data[0])[index];
-						data[3 * index] = Y;
-						data[3 * index + 1] = Y;
-						data[3 * index + 2] = Y;
-					}
+                int pixels = frame[1].width * frame[1].height;
+                unsafe
+                {
+					NativeArray<byte> videoBytes = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(
+							frame[1].data[0].ToPointer(),
+							frame[1].linesize[0] * frame[1].height / UnsafeUtility.SizeOf<byte>(),
+							Allocator.None);
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+					NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref videoBytes, AtomicSafetyHandle.Create());
+#endif
+
+					data.CopyFrom(videoBytes);
+					
+					// TODO copy the U and V frames (packed together in NV12 on Windows/NVIDIA) to separate
+					// textures and combine in shader
 				}
 				colorTexture.Apply(false);
 			}
-
 			// if audio is present...
 			if (frame[2].data != null && frame[2].data[0] != null && frame[2].linesize != null && frame[2].linesize[0] > 0)
             {
@@ -236,7 +242,7 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 						// just wait a few frames before starting the audio so we don't get all the buffer underrun
 						if (++audioFrameNumber == 15)
 						{
-							Debug.Log("Starting Audio now that we've had 5 audio frames");
+							Debug.Log("Starting Audio now that we've had 15 audio frames");
 							aud.Play();
 						}
 					}
@@ -246,5 +252,6 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 		if (UNHVD.unhvd_get_frame_end(unhvd) != 0)
 			Debug.LogWarning("Failed to get UNHVD frame data");
+		
 	}
 }
