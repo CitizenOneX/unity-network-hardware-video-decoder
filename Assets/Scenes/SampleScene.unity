@@ -663,6 +663,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d88208428a0b7e6d798b1321c177de84, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  v: {fileID: 1118493068}
 --- !u!4 &688259386
 Transform:
   m_ObjectHideFlags: 0
@@ -795,6 +796,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 158f9d17fb4d42749a540593e574a861, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  videoFrameNumber: 0
+  audioFrameNumber: 0
 --- !u!64 &1118493069
 MeshCollider:
   m_ObjectHideFlags: 0

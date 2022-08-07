@@ -14,6 +14,7 @@ using System.Threading;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
+using UnityEngine.Assertions;
 
 public class VideoDepthAudioRenderer : MonoBehaviour
 {
@@ -45,15 +46,14 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 	private Texture2D colorTexture;
 
-	private const int AUDIO_SAMPLE_RATE = 22050;
-	private const int AUDIO_SAMPLE_BUFFER_LENGTH = 1400;
+	private const int AUDIO_SAMPLE_RATE = 44100;
+	private const int AUDIO_SAMPLE_BUFFER_LENGTH = 256;
 	private readonly object audioBufferLock = new object();
-	private int position = 0;
 	private CircularBuffer<float> audioBuffer = new CircularBuffer<float>(20, AUDIO_SAMPLE_BUFFER_LENGTH);
-	AudioSource aud;
+	private AudioSource aud;
 
-	private int frameNumber = 0; // TODO just testing the number of times things are called
-	private int audioFrameNumber = 0; // TODO just testing delayed audio clip start
+	public int videoFrameNumber = 0; // TODO just testing the number of times things are called
+	public int audioFrameNumber = 0; // TODO just testing delayed audio clip start
 
 	void Awake()
 	{
@@ -89,63 +89,45 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 		// Find the AudioSource component and prepare the streaming clip
 		aud = GetComponent<AudioSource>();
-		aud.clip = AudioClip.Create("AudioStream", AUDIO_SAMPLE_BUFFER_LENGTH, 1, AUDIO_SAMPLE_RATE, true, OnAudioRead, OnAudioSetPosition);
+		var dummyClip = AudioClip.Create("dummy", 1, 1, AUDIO_SAMPLE_RATE, false);
+		dummyClip.SetData(new float[] { 1 }, 0);
+		//aud.clip = AudioClip.Create("AudioStream", AUDIO_SAMPLE_BUFFER_LENGTH, 1, AUDIO_SAMPLE_RATE, true, OnAudioRead, OnAudioSetPosition);
+		aud.clip = dummyClip; // needed for Unity to play the AudioSource
+		aud.loop = true;
+
+		AudioSettings.outputSampleRate = AUDIO_SAMPLE_RATE;
+		AudioSettings.speakerMode = AudioSpeakerMode.Mono;
+		int dspBufferLength, dspNumBuffers;
+		AudioSettings.GetDSPBufferSize(out dspBufferLength, out dspNumBuffers);
+		AudioSettings.SetDSPBufferSize(256, 2);
+		Debug.Log($"{AudioSettings.outputSampleRate}, {dspBufferLength}, {dspNumBuffers}, {AudioSettings.speakerMode}");
+
+		// try not capping the frame rate - does this affect update calls as well as draw calls?
+		QualitySettings.vSyncCount = 0;
 	}
 
-    private void OnAudioSetPosition(int newPosition)
-    {
-        lock (audioBufferLock)
-        {
-			// only seems to be called to set position to 0 (i.e. when the looping sample loops again)
-			this.position = newPosition;
-
-			// cycle the buffers
-			//Debug.Log("OnAudioSetPosition called newPosition=" + newPosition + ", cycling buffers");
-		}
-	}
-
-    private void OnAudioRead(float[] data)
-    {
-		// actually I just want to copy data.Length samples into data (and increment position by data.Length?)
-		// data.Length varies when it's called, either 4096 or sometimes twice with smaller values that add to 4096,
-		// and sometimes a loop inbetween (i.e. SetPosition is called with position = 0)
-		// do I always want to copy the "latest" data.Length samples from my (ringbuffer?)
-		// of streamed audio? What if it asks for another 4096 right away? I guess this sets the latency, the size of this Clip,
-		// and I run the risk of buffer underruns if I make this too small
-
-		// why don't I get the sender to stream 4096 samples at a time, then when OnAudioRead is called,
-		// if length is 4096, copy the last frame[2].data and zero the offset; if length < 4096 and the offset is zero,
-		// copy the first data.Length samples; if length < 4096 and the offset is non-zero, send data.Length samples from offset=offset and
-		// increment offset by data.Length
-		// Actually it might only be necessary to zero the offset in OnAudioSetPosition, otherwise increment it by data.Length in OnAudioRead
-		// provided the buffer length here is the same as the buffer length being sent
-		// Still wondering about whether access to frame[2] needs to be synchronised (or just copy the data pointers and size? will the memory be freed before my use?)
-		// Or whether I need to take a full copy of the frame data as it comes in (it is quite nice if it's a fixed length then)
-		// TODO need to check on Android whether it requests 4096 each time or some other amount
-		//Debug.Log("OnAudioRead called data.Length=" + data.Length);
-
-		// copy data from the current position of the front buffer to the supplied data array
+	void OnAudioFilterRead(float[] data, int channels)
+	{
+		Assert.AreEqual(data.Length, AUDIO_SAMPLE_BUFFER_LENGTH);
 		lock (audioBufferLock)
 		{
 			if (audioBuffer.IsEmpty)
-            {
-				Debug.Log("OnAudioRead Underrun: data.Length=" + data.Length);
-				Array.Clear(data, 0, data.Length);
-				position += data.Length;
-			}
-			// if we're clearing the rest of the buffer (or taking a whole buffer)
-			// Read off the current element and copy over to the supplied data array
-			else if ((position == 0 && data.Length == AUDIO_SAMPLE_BUFFER_LENGTH) || (position + data.Length) == AUDIO_SAMPLE_BUFFER_LENGTH)
 			{
-				Array.Copy(audioBuffer.Read(), position, data, 0, data.Length);
+				Debug.Log("OnAudioFilterRead Underrun: data.Length=" + data.Length);
+				Array.Clear(data, 0, data.Length);
 			}
 			else
 			{
+				Array.Copy(audioBuffer.Read(), 0, data, 0, AUDIO_SAMPLE_BUFFER_LENGTH);
+				//Array.Copy(audioBuffer.Read(), 0, data, AUDIO_SAMPLE_BUFFER_LENGTH, AUDIO_SAMPLE_BUFFER_LENGTH);
+			}
+			//else
+			//{
 				// otherwise if we're only taking part of a whole buffer, and not to the end,
 				// then just Peek at rather than Read off the element
-				Array.Copy(audioBuffer.Peek(), position, data, 0, data.Length);
-				position += data.Length;
-			}
+			//	Array.Copy(audioBuffer.Peek(), position, data, 0, data.Length);
+			//	position += data.Length;
+			//}
 		}
 	}
 
@@ -170,14 +152,13 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 		
 		if (UNHVD.unhvd_get_frame_begin(unhvd, frame) == 0)
 		{
-			++frameNumber;
-
 			// if a color texture frame is present, ensure existing color Texture2D
 			// matches width/height then copy data over
 			// looks like data is hanging around in data[0] so I'll check linesizes are non-zero too
 			if (frame[1].data != null && frame[1].data[0] != null && frame[1].linesize != null && frame[1].linesize[0] > 0)
 			{
-				//Debug.Log("---- video frame: " + frameNumber);
+				++videoFrameNumber;
+
 				AdaptTexture();
 				var data = colorTexture.GetRawTextureData<byte>();
                 int pixels = frame[1].width * frame[1].height;
@@ -202,20 +183,11 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 			// if audio is present...
 			if (frame[2].data != null && frame[2].data[0] != null && frame[2].linesize != null && frame[2].linesize[0] > 0)
             {
-				//Debug.Log("---- audio frame: " + frameNumber);
-
-				// copy to the back buffer of a triple buffer so the AudioClip
-				// can pull the data from the front buffer as it needs to.
-				// If the back buffer is already full and hasn't been swapped
-				// i.e. the AudioClip is running behind
-				// then put the current back buffer in front and write the 
-				// new data to the (new) back buffer. There will be a discontinuity
-				// in the audio being played, but it will start to catch up
 				lock (audioBufferLock)
 				{
 					unsafe
 					{
-						//Debug.Log("Copy incoming audio frame samples: " + frame[2].linesize[0] / UnsafeUtility.SizeOf<float>());
+						Debug.Log("Copy incoming audio frame samples: " + frame[2].linesize[0] / UnsafeUtility.SizeOf<float>());
 
 						// cast the incoming audio frame to a float array
 						NativeArray<float> audioSamples = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<float>(
@@ -240,9 +212,9 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 						}
 
 						// just wait a few frames before starting the audio so we don't get all the buffer underrun
-						if (++audioFrameNumber == 15)
+						if (++audioFrameNumber == 10)
 						{
-							Debug.Log("Starting Audio now that we've had 15 audio frames");
+							Debug.Log("Starting Audio now that we've had 10 audio frames");
 							aud.Play();
 						}
 					}
