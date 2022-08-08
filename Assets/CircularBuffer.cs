@@ -2,7 +2,7 @@
 using Unity.Collections;
 
 /// <summary>
-/// A circular buffer of arrays of unmanaged values, e.g. circular buffer of 10 float[2048] arrays
+/// A circular buffer of arrays of unmanaged values, e.g. circular buffer of 20 float[256] arrays
 /// </summary>
 /// <typeparam name="T"></typeparam>
 public class CircularBuffer<T> where T : unmanaged
@@ -12,6 +12,8 @@ public class CircularBuffer<T> where T : unmanaged
 
     public bool IsEmpty { get => _content == 0;  }
     public bool IsFull { get => _content == _capacity; }
+
+    public int QueueLength { get => _content; }
 
     public CircularBuffer(int capacity, int bufSize)
     {

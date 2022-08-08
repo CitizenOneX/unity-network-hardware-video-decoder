@@ -46,10 +46,11 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 	private Texture2D colorTexture;
 
-	private const int AUDIO_SAMPLE_RATE = 44100;
+	private const int AUDIO_SAMPLE_RATE = 22050;
 	private const int AUDIO_SAMPLE_BUFFER_LENGTH = 256;
+	private const int AUDIO_SAMPLE_RING_CAPACITY = 40;
 	private readonly object audioBufferLock = new object();
-	private CircularBuffer<float> audioBuffer = new CircularBuffer<float>(20, AUDIO_SAMPLE_BUFFER_LENGTH);
+	private CircularBuffer<float> audioBuffer = new CircularBuffer<float>(AUDIO_SAMPLE_RING_CAPACITY, AUDIO_SAMPLE_BUFFER_LENGTH);
 	private AudioSource aud;
 
 	public int videoFrameNumber = 0; // TODO just testing the number of times things are called
@@ -59,7 +60,8 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 	{
 		// trim down the debug messages to not include stack traces
 		Application.SetStackTraceLogType(LogType.Log, StackTraceLogType.None);
-		NativeLeakDetection.Mode = NativeLeakDetectionMode.EnabledWithStackTrace;
+		
+		//NativeLeakDetection.Mode = NativeLeakDetectionMode.EnabledWithStackTrace;
 		//NativeLeakDetection.Mode = NativeLeakDetectionMode.Disabled;
 
 		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config { ip = this.ip, port = this.port, timeout_ms = this.timeout_ms };
@@ -87,22 +89,23 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 			uv [i][1] = -uv [i][1];
 		GetComponent<MeshFilter> ().mesh.uv = uv;
 
+		// tweak the audio configuration for low latency
+		var audioConfig = AudioSettings.GetConfiguration();
+		audioConfig.dspBufferSize = 256; // "Best latency" (also numbuffers==4, no longer settable)
+		audioConfig.numRealVoices = 1;
+		audioConfig.numVirtualVoices = 1;
+		audioConfig.sampleRate = AUDIO_SAMPLE_RATE;
+		audioConfig.speakerMode = AudioSpeakerMode.Mono;
+		AudioSettings.Reset(audioConfig);
+
 		// Find the AudioSource component and prepare the streaming clip
 		aud = GetComponent<AudioSource>();
 		var dummyClip = AudioClip.Create("dummy", 1, 1, AUDIO_SAMPLE_RATE, false);
-		dummyClip.SetData(new float[] { 1 }, 0);
-		//aud.clip = AudioClip.Create("AudioStream", AUDIO_SAMPLE_BUFFER_LENGTH, 1, AUDIO_SAMPLE_RATE, true, OnAudioRead, OnAudioSetPosition);
+		dummyClip.SetData(new float[1], 0);
 		aud.clip = dummyClip; // needed for Unity to play the AudioSource
-		aud.loop = true;
+		aud.loop = false; // doesn't seem to stop source from playing continuously
 
-		AudioSettings.outputSampleRate = AUDIO_SAMPLE_RATE;
-		AudioSettings.speakerMode = AudioSpeakerMode.Mono;
-		int dspBufferLength, dspNumBuffers;
-		AudioSettings.GetDSPBufferSize(out dspBufferLength, out dspNumBuffers);
-		AudioSettings.SetDSPBufferSize(256, 2);
-		Debug.Log($"{AudioSettings.outputSampleRate}, {dspBufferLength}, {dspNumBuffers}, {AudioSettings.speakerMode}");
-
-		// try not capping the frame rate - does this affect update calls as well as draw calls?
+		// don't limit the frame rate, we want to sample packets frequently
 		QualitySettings.vSyncCount = 0;
 	}
 
@@ -111,23 +114,18 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 		Assert.AreEqual(data.Length, AUDIO_SAMPLE_BUFFER_LENGTH);
 		lock (audioBufferLock)
 		{
+			//Debug.Log("OnAudioFilterRead QueueLength: " + audioBuffer.QueueLength);
+
 			if (audioBuffer.IsEmpty)
 			{
-				Debug.Log("OnAudioFilterRead Underrun: data.Length=" + data.Length);
+				// underrun, just play silence
 				Array.Clear(data, 0, data.Length);
 			}
 			else
 			{
+				// copy the collected audio data over to the DSP buffer
 				Array.Copy(audioBuffer.Read(), 0, data, 0, AUDIO_SAMPLE_BUFFER_LENGTH);
-				//Array.Copy(audioBuffer.Read(), 0, data, AUDIO_SAMPLE_BUFFER_LENGTH, AUDIO_SAMPLE_BUFFER_LENGTH);
 			}
-			//else
-			//{
-				// otherwise if we're only taking part of a whole buffer, and not to the end,
-				// then just Peek at rather than Read off the element
-			//	Array.Copy(audioBuffer.Peek(), position, data, 0, data.Length);
-			//	position += data.Length;
-			//}
 		}
 	}
 
@@ -187,7 +185,7 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 				{
 					unsafe
 					{
-						Debug.Log("Copy incoming audio frame samples: " + frame[2].linesize[0] / UnsafeUtility.SizeOf<float>());
+						//Debug.Log("Copy incoming audio frame samples: " + frame[2].linesize[0] / UnsafeUtility.SizeOf<float>());
 
 						// cast the incoming audio frame to a float array
 						NativeArray<float> audioSamples = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<float>(
@@ -198,23 +196,22 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
 						NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref audioSamples, AtomicSafetyHandle.Create());
 #endif
-						// TODO ASSERT frame size matches audio buffer size?
+						Assert.AreEqual(audioSamples.Length, AUDIO_SAMPLE_BUFFER_LENGTH);
+						//Debug.Log("Update Audio Frame Present - QueueLength: " + audioBuffer.QueueLength);
+
 						if (audioBuffer.IsFull)
 						{
-							Debug.Log("AudioBuffer Overrun");
 							audioBuffer.Overwrite(audioSamples);
 						}
 						else
 						{
-							// copy the float array to the audio back buffer
-							// Note: incoming frames must be the same size as the buffers here
 							audioBuffer.Write(audioSamples);
 						}
 
 						// just wait a few frames before starting the audio so we don't get all the buffer underrun
-						if (++audioFrameNumber == 10)
+						if (++audioFrameNumber == 20)
 						{
-							Debug.Log("Starting Audio now that we've had 10 audio frames");
+							Debug.Log("Starting Audio now that we've had 20 audio frames");
 							aud.Play();
 						}
 					}
@@ -224,6 +221,5 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 		if (UNHVD.unhvd_get_frame_end(unhvd) != 0)
 			Debug.LogWarning("Failed to get UNHVD frame data");
-		
 	}
 }
