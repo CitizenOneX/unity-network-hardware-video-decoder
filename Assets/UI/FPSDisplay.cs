@@ -30,6 +30,7 @@ public class FPSDisplay : MonoBehaviour
 			videoFramesAtSecondStart = videoFramesTotal;
 			afps = audioFramesTotal - audioFramesAtSecondStart;
 			audioFramesAtSecondStart = audioFramesTotal;
+			Debug.Log($"fps: {1.0f / deltaTime}, vfps: {vfps}, afps: {afps}");
         }
 	}
  /*
