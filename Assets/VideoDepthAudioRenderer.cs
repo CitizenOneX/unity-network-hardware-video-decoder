@@ -44,7 +44,7 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 		new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] }  // aux (raw PCM audio)
 	};
 
-	private Texture2D colorTexture;
+	private Texture2D colorTextureY;
 
 	private const int AUDIO_SAMPLE_RATE = 22050;
 	private const int AUDIO_SAMPLE_BUFFER_LENGTH = 256;
@@ -53,8 +53,10 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 	private CircularBuffer<float> audioBuffer = new CircularBuffer<float>(AUDIO_SAMPLE_RING_CAPACITY, AUDIO_SAMPLE_BUFFER_LENGTH);
 	private AudioSource aud;
 
-	public int videoFrameNumber = 0; // TODO just testing the number of times things are called
-	public int audioFrameNumber = 0; // TODO just testing delayed audio clip start
+	// some performance statistics for the FPS Display (logger)
+	public int VideoFrameNumber = 0;
+	public int AudioFrameNumber = 0;
+	public int AudioQueueLength { get => audioBuffer.QueueLength; }
 
 	void Awake()
 	{
@@ -136,11 +138,11 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 	private void AdaptTexture()
 	{
-		if (colorTexture == null || colorTexture.width != frame[1].width || colorTexture.height != frame[1].height)
+		if (colorTextureY == null || colorTextureY.width != frame[1].width || colorTextureY.height != frame[1].height)
 		{
 			Debug.Log(string.Format("Texture plane format: {0} linesizes: ({1}, {2}, {3})", frame[1].format, frame[1].linesize[0], frame[1].linesize[1], frame[1].linesize[2]));
-			colorTexture = new Texture2D (frame[1].width, frame[1].height, TextureFormat.R8, false);
-			GetComponent<Renderer> ().material.mainTexture = colorTexture;
+			colorTextureY = new Texture2D (frame[1].width, frame[1].height, TextureFormat.R8, false);
+			GetComponent<Renderer> ().material.mainTexture = colorTextureY;
 		}
 	}
 
@@ -155,30 +157,14 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 			// looks like data is hanging around in data[0] so I'll check linesizes are non-zero too
 			if (frame[1].data != null && frame[1].data[0] != null && frame[1].linesize != null && frame[1].linesize[0] > 0)
 			{
-				++videoFrameNumber;
+				++VideoFrameNumber;
 
 				AdaptTexture();
-                unsafe
-                {
-					var data = colorTexture.GetRawTextureData<byte>();
-					int pixels = frame[1].width * frame[1].height;
-					NativeArray<byte> videoBytes = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(
-							frame[1].data[0].ToPointer(),
-							frame[1].linesize[0] * frame[1].height / UnsafeUtility.SizeOf<byte>(),
-							Allocator.None);
+				colorTextureY.LoadRawTextureData(frame[1].data[0], frame[1].linesize[0] * frame[1].height);
 
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-					NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref videoBytes, AtomicSafetyHandle.Create());
-#endif
-
-					data.CopyFrom(videoBytes);
-
-					// TODO copy the U and V frames (packed together in NV12 on Windows/NVIDIA) to separate
-					// textures and combine in shader
-					// TODO LoadRawTextureData should be able to load this all in one line
-					//colorTexture.LoadRawTextureData(frame[1].data[0], frame[1].linesize[0] * frame[1].height);
-				}
-				colorTexture.Apply(false);
+				// TODO copy the U and V frames (packed together in NV12 on Windows/NVIDIA) to separate
+				// textures and combine in shader
+				colorTextureY.Apply(false);
 			}
 			// if audio is present...
 			if (frame[2].data != null && frame[2].data[0] != null && frame[2].linesize != null && frame[2].linesize[0] > 0)
@@ -211,7 +197,7 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 						}
 
 						// just wait a few frames before starting the audio so we don't get all the buffer underrun
-						if (++audioFrameNumber == 20)
+						if (++AudioFrameNumber == 20)
 						{
 							Debug.Log("Starting Audio now that we've had 20 audio frames");
 							aud.Play();

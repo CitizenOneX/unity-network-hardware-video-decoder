@@ -19,8 +19,8 @@ public class FPSDisplay : MonoBehaviour
 	{
 		deltaTime += (Time.unscaledDeltaTime - deltaTime) * 0.1f;
 
-		videoFramesTotal = v.videoFrameNumber;
-		audioFramesTotal = v.audioFrameNumber;
+		videoFramesTotal = v.VideoFrameNumber;
+		audioFramesTotal = v.AudioFrameNumber;
 
 		float currentTime = Time.time;
 		if (currentTime - 1.0f > currentSecondStart)
@@ -30,7 +30,7 @@ public class FPSDisplay : MonoBehaviour
 			videoFramesAtSecondStart = videoFramesTotal;
 			afps = audioFramesTotal - audioFramesAtSecondStart;
 			audioFramesAtSecondStart = audioFramesTotal;
-			Debug.Log($"fps: {1.0f / deltaTime}, vfps: {vfps}, afps: {afps}");
+			Debug.Log($"fps: {1.0f / deltaTime}, vfps: {vfps}, afps: {afps}, queue: {v.AudioQueueLength}");
         }
 	}
  /*
