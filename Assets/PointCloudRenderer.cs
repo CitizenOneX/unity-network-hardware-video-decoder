@@ -40,7 +40,7 @@ public class PointCloudRenderer : MonoBehaviour
 	private UNHVD.unhvd_point_cloud point_cloud = new UNHVD.unhvd_point_cloud {data = System.IntPtr.Zero, size=0, used=0};
 
 	private Mesh mesh;
-	private Color[] meshColors;
+	private Color32[] meshColors;
 
 	void Awake()
 	{
@@ -70,12 +70,12 @@ public class PointCloudRenderer : MonoBehaviour
 		//DepthConfig dc = new DepthConfig{ppx = 425.038f, ppy=249.114f, fx=618.377f, fy=618.411f, depth_unit = 0.0001f, min_margin = 0.168f, max_margin = 0.01f};
 
 		//sample config for L515 320x240 with depth units resulting in 6.4 mm precision and 6.5472 m range (alignment to depth)
-		DepthConfig dc = new DepthConfig{ppx = 168.805f, ppy=125.068f, fx=229.699f, fy=230.305f, depth_unit = 0.0001f, min_margin = 0.19f, max_margin = 0.01f};
+		//DepthConfig dc = new DepthConfig{ppx = 168.805f, ppy=125.068f, fx=229.699f, fy=230.305f, depth_unit = 0.0001f, min_margin = 0.19f, max_margin = 0.01f};
 
 		//sample config for L515 640x480 with depth units resulting in 2.5 mm precision and 2.5575 m range (alignment to depth)
 		//DepthConfig dc = new DepthConfig { ppx = 358.781f, ppy = 246.297f, fx = 470.941f, fy = 470.762f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f };
 		//sample config for L515 640x480 with depth units resulting in 6.4 mm precision and 6.5472 m range (alignment to color)
-		//DepthConfig dc = new DepthConfig { ppx = 319.809f, ppy = 236.507f, fx = 606.767f, fy = 607.194f, depth_unit = 0.0001f, min_margin = 0.19f, max_margin = 0.01f };
+		DepthConfig dc = new DepthConfig { ppx = 319.809f, ppy = 236.507f, fx = 606.767f, fy = 607.194f, depth_unit = 0.0001f, min_margin = 0.19f, max_margin = 0.01f };
 
 		//sample config for L515 1280x720 with depth units resulting in 2.5 mm precision and 2.5575 m range (alignment to color)
 		//DepthConfig dc = new DepthConfig{ppx = 647.881f, ppy=368.939f, fx=906.795f, fy=906.768f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f};
@@ -116,10 +116,11 @@ public class PointCloudRenderer : MonoBehaviour
 		mesh.bounds = new Bounds(new Vector3(0, 0, 0), new Vector3(10, 10, 10));
 
 		//make Unity internal mesh data match our native mesh data (separate streams for position and colors)
+		//Color32 is included as 4xUNorm8s so they are correctly converted to float4 in the shader
 		VertexAttributeDescriptor[] layout = new[]
 		{
 			new VertexAttributeDescriptor(VertexAttribute.Position, VertexAttributeFormat.Float32, 3, 0),
-			new VertexAttributeDescriptor(VertexAttribute.Color, VertexAttributeFormat.Float32, 4, 1),
+			new VertexAttributeDescriptor(VertexAttribute.Color, VertexAttributeFormat.UNorm8, 4, 1),
 		};
 
 		mesh.SetVertexBufferParams(size, layout);
@@ -133,10 +134,8 @@ public class PointCloudRenderer : MonoBehaviour
 
 		GetComponent<MeshFilter>().mesh = mesh;
 
-		// Create a separate array to unpack the YUV into RGBA for the Vertices
-		meshColors = new Color[size];
-		// TODO remove: initialize the vertex colors to red to see if they're being updated correctly
-		for (int i = 0; i < size; i++) meshColors[i] = Color.red;
+		// Create a separate array to unpack the YUV into RGBA for the Vertices (just Y for now)
+		meshColors = new Color32[size];
 	}
 
 	void LateUpdate ()
@@ -144,19 +143,6 @@ public class PointCloudRenderer : MonoBehaviour
 		if (UNHVD.unhvd_get_point_cloud_begin(unhvd, ref point_cloud) == 0)
 		{
 			PrepareMesh(point_cloud.size);
-
-			//possible optimization - only render non-zero points (point_cloud.used)
-			//unsafe
-			//{
-			//	NativeArray<Vector3> pc = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Vector3>(point_cloud.data.ToPointer(), point_cloud.size, Allocator.None);
-			//	NativeArray<Color32> colors = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Color32>(point_cloud.colors.ToPointer(), point_cloud.size, Allocator.None);
-			//	#if ENABLE_UNITY_COLLECTIONS_CHECKS
-			//	NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref pc, AtomicSafetyHandle.Create());
-			//	NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref colors, AtomicSafetyHandle.Create());
-			//	#endif
-			//	mesh.SetVertexBufferData(pc, 0, 0, point_cloud.size, 0, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
-			//	mesh.SetVertexBufferData(colors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
-			//}
 
 			//possible optimization - only render non-zero points (point_cloud.used)
 			unsafe
@@ -171,20 +157,15 @@ public class PointCloudRenderer : MonoBehaviour
 
 				mesh.SetVertexBufferData(pc, 0, 0, point_cloud.size, 0, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
 
-				// copy the Y plane pixels to the vertex buffer
-				//mesh.SetVertexBufferData(colors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
-
+				// copy the colors to the vertex buffer
+				// TODO move this loop into hdu.c and return a Color32 array directly rather than just Y byte
 				for (int i = 0; i < point_cloud.size; i++)
 				{
-					// OK so Color type is 4 floats 0.0->1.0. Color32 is the usual RGBA but needs to be normalised to floats for the shader (has to happen somewhere)
-					meshColors[i].r = colors[i] / 255.0f;
-					meshColors[i].g = colors[i] / 255.0f;
-					meshColors[i].b = colors[i] / 255.0f;
-					meshColors[i].a = 1.0f;
+					meshColors[i].r = meshColors[i].g = meshColors[i].b = colors[i];
+					meshColors[i].a = 255;
 				}
 				
 				mesh.SetVertexBufferData(meshColors, 0, 0, point_cloud.size, 1, MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds);
-				//mesh.SetColors(meshColors);
 
 				if (++framecounter % 300 == 0)
 				{
