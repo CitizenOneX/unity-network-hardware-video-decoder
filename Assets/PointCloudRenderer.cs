@@ -29,7 +29,7 @@ public class PointCloudRenderer : MonoBehaviour
 	private int heightDepth = 0;
 	private int heightTexture = 0;
 	private string pixel_formatDepth = "p010le";
-	private string pixel_formatTexture = "yuv420p";
+	private string pixel_formatTexture = "nv12";
 	private string ip = "";
 	private ushort port = 9766;
 
@@ -44,6 +44,9 @@ public class PointCloudRenderer : MonoBehaviour
 
 	void Awake()
 	{
+		// trim down the debug messages to not include stack traces
+		Application.SetStackTraceLogType(LogType.Log, StackTraceLogType.None);
+
 		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config{ip=this.ip, port=this.port, timeout_ms=500 };
 		UNHVD.unhvd_hw_config[] hw_config = new UNHVD.unhvd_hw_config[]
 		{
@@ -51,6 +54,7 @@ public class PointCloudRenderer : MonoBehaviour
 			new UNHVD.unhvd_hw_config{hardware=this.hardwareTexture, codec=this.codecTexture, device=this.deviceTexture, pixel_format=this.pixel_formatTexture, width=this.widthTexture, height=this.heightTexture, profile=1}
 		};
 
+		#region depth_config
 		//For depth config explanation see:
 		//https://github.com/bmegli/unity-network-hardware-video-decoder/wiki/Point-clouds-configuration
 
@@ -70,6 +74,8 @@ public class PointCloudRenderer : MonoBehaviour
 
 		//sample config for L515 640x480 with depth units resulting in 2.5 mm precision and 2.5575 m range (alignment to depth)
 		//DepthConfig dc = new DepthConfig { ppx = 358.781f, ppy = 246.297f, fx = 470.941f, fy = 470.762f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f };
+		//sample config for L515 640x480 with depth units resulting in 6.4 mm precision and 6.5472 m range (alignment to color)
+		//DepthConfig dc = new DepthConfig { ppx = 319.809f, ppy = 236.507f, fx = 606.767f, fy = 607.194f, depth_unit = 0.0001f, min_margin = 0.19f, max_margin = 0.01f };
 
 		//sample config for L515 1280x720 with depth units resulting in 2.5 mm precision and 2.5575 m range (alignment to color)
 		//DepthConfig dc = new DepthConfig{ppx = 647.881f, ppy=368.939f, fx=906.795f, fy=906.768f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f};
@@ -79,6 +85,7 @@ public class PointCloudRenderer : MonoBehaviour
 		//DepthConfig dc = new DepthConfig{ppx = 426.33f, ppy=239.446f, fx=422.768f, fy=422.768f, depth_unit = 0.0000390625f, min_margin = 0.35f, max_margin = 0.01f};
 		//as above, alignment to color, distortion model ignored
 		//DepthConfig dc = new DepthConfig{ppx = 419.278f, ppy=244.24f, fx=419.909f, fy=418.804f, depth_unit = 0.0000390625f, min_margin = 0.35f, max_margin = 0.01f};
+		#endregion
 
 		UNHVD.unhvd_depth_config depth_config = new UNHVD.unhvd_depth_config{ppx = dc.ppx, ppy = dc.ppy, fx = dc.fx, fy = dc.fy, depth_unit =  dc.depth_unit, min_margin = dc.min_margin, max_margin = dc.max_margin};
 
@@ -111,18 +118,18 @@ public class PointCloudRenderer : MonoBehaviour
 		//make Unity internal mesh data match our native mesh data (separate streams for position and colors)
 		VertexAttributeDescriptor[] layout = new[]
 		{
-			new VertexAttributeDescriptor(UnityEngine.Rendering.VertexAttribute.Position, VertexAttributeFormat.Float32, 3, 0),
-			new VertexAttributeDescriptor(UnityEngine.Rendering.VertexAttribute.Color, VertexAttributeFormat.Float32, 4, 1),
+			new VertexAttributeDescriptor(VertexAttribute.Position, VertexAttributeFormat.Float32, 3, 0),
+			new VertexAttributeDescriptor(VertexAttribute.Color, VertexAttributeFormat.Float32, 4, 1),
 		};
 
 		mesh.SetVertexBufferParams(size, layout);
 
-		mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+		mesh.indexFormat = IndexFormat.UInt32;
 		int[] indices = new int[size];
 		for(int i=0;i<size;++i)
 			indices[i] = i;
 
-		mesh.SetIndices(indices, MeshTopology.Points,0);
+		mesh.SetIndices(indices, MeshTopology.Points, 0, false);
 
 		GetComponent<MeshFilter>().mesh = mesh;
 
