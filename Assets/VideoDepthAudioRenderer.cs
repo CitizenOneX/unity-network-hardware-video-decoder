@@ -158,10 +158,10 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 				++videoFrameNumber;
 
 				AdaptTexture();
-				var data = colorTexture.GetRawTextureData<byte>();
-                int pixels = frame[1].width * frame[1].height;
                 unsafe
                 {
+					var data = colorTexture.GetRawTextureData<byte>();
+					int pixels = frame[1].width * frame[1].height;
 					NativeArray<byte> videoBytes = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(
 							frame[1].data[0].ToPointer(),
 							frame[1].linesize[0] * frame[1].height / UnsafeUtility.SizeOf<byte>(),
@@ -172,9 +172,11 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 #endif
 
 					data.CopyFrom(videoBytes);
-					
+
 					// TODO copy the U and V frames (packed together in NV12 on Windows/NVIDIA) to separate
 					// textures and combine in shader
+					// TODO LoadRawTextureData should be able to load this all in one line
+					//colorTexture.LoadRawTextureData(frame[1].data[0], frame[1].linesize[0] * frame[1].height);
 				}
 				colorTexture.Apply(false);
 			}
