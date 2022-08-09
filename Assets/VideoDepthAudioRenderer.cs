@@ -16,6 +16,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using UnityEngine.Assertions;
 
+[RequireComponent(typeof(AudioSource))]
 public class VideoDepthAudioRenderer : MonoBehaviour
 {
 	private string hardwareDepth = "cuda";
