@@ -95,10 +95,10 @@ public class GPUPointCloudRenderer : MonoBehaviour
 
 		// TODO work out what to do about the depth_unit *60 hack
 		//sample config for L515 320x240 with depth units resulting in 6.4 mm precision and 6.5472 m range (alignment to depth)
-		DepthConfig dc = new DepthConfig { ppx = 168.805f, ppy = 125.068f, fx = 229.699f, fy = 230.305f, depth_unit = 0.0001f, min_margin = 0.19f, max_margin = 0.01f };
+		//DepthConfig dc = new DepthConfig { ppx = 168.805f, ppy = 125.068f, fx = 229.699f, fy = 230.305f, depth_unit = 0.0001f, min_margin = 0.19f, max_margin = 0.01f };
 		//sample config for L515 640x480 with depth units resulting in 2.5 mm precision and 2.5575 m range (alignment to depth)
 		//?DepthConfig dc = new DepthConfig { ppx = 358.781f, ppy = 246.297f, fx = 470.941f, fy = 470.762f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f };
-		//DepthConfig dc = new DepthConfig { ppx = 319.809f, ppy = 236.507f, fx = 606.767f, fy = 607.194f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f };
+		DepthConfig dc = new DepthConfig { ppx = 319.809f, ppy = 236.507f, fx = 606.767f, fy = 607.194f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f };
 
 		SetDepthConfig(dc);
 	}
