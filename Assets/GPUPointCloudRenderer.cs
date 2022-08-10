@@ -11,9 +11,6 @@
 
 using System;
 using UnityEngine;
-using UnityEngine.Rendering;
-using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 
 public class GPUPointCloudRenderer : MonoBehaviour
 {
@@ -37,18 +34,17 @@ public class GPUPointCloudRenderer : MonoBehaviour
 	private UNHVD.unhvd_frame[] frame = new UNHVD.unhvd_frame[]
 	{
 		new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] }, // depth
-		new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] }, // color
-		new UNHVD.unhvd_frame{ data=new System.IntPtr[1], linesize=new int[3] }  // aux (raw PCM audio)
+		new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] } // color
+		//new UNHVD.unhvd_frame{ data=new System.IntPtr[1], linesize=new int[3] }  // aux (raw PCM audio)
 	};
 
 	private Texture2D depthTexture; //uint16 depth map filled with data from native side
-	private Texture2D colorTextureY; //YUV420P color planes filled with data from native side to be combined in the shader
-	private Texture2D colorTextureU; // width/2, height/2, needs to be unpacked from single UV plane in NV12
-	private Texture2D colorTextureV; // width/2, height/2
+	private Texture2D colorTextureY; // NV12 Y-color plane filled with data from native side to be combined in the shader
+	private Texture2D colorTextureUV; // NV12 interleaved UV (width/2)*2, height/2, needs to be unpacked from single UV plane the shader
 
-	private GraphicsBuffer vertexBuffer; // 2 * float4, RWStructuredBuffer in compute shader
+	private ComputeBuffer vertexBuffer; // float4,float4 (vertex position, color) AppendStructuredBuffer in compute shader
 	//private GraphicsBuffer indexBuffer;  // uint (indices of triangle vertices), AppendStructuredBuffer in compute shader
-	private GraphicsBuffer argsBuffer;   // indirect rendering args
+	private ComputeBuffer argsBuffer;   // indirect rendering args
 
 	public ComputeShader unprojectionShader;
 	public Shader pointCloudShader;
@@ -57,16 +53,19 @@ public class GPUPointCloudRenderer : MonoBehaviour
 
 	void Awake()
 	{
+		// trim down the debug messages to not include stack traces
+		Application.SetStackTraceLogType(LogType.Log, StackTraceLogType.None);
+
 		//Application.targetFrameRate = 30;
 
 		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config { ip = this.ip, port = this.port, timeout_ms = 500 };
 		UNHVD.unhvd_hw_config[] hw_config = new UNHVD.unhvd_hw_config[]
 		{
-			new UNHVD.unhvd_hw_config{hardware=this.hardwareDepth, codec=this.codecDepth, device=this.deviceDepth, pixel_format=this.pixel_formatDepth, width=this.widthDepth, height=this.heightDepth, profile=2},
-			new UNHVD.unhvd_hw_config{hardware=this.hardwareTexture, codec=this.codecTexture, device=this.deviceTexture, pixel_format=this.pixel_formatTexture, width=this.widthTexture, height=this.heightTexture, profile=1}
+			new UNHVD.unhvd_hw_config{hardware=this.hardwareDepth, codec=this.codecDepth, device=this.deviceDepth, pixel_format=this.pixel_formatDepth, width=this.widthDepth, height=this.heightDepth, profile=0},
+			new UNHVD.unhvd_hw_config{hardware=this.hardwareTexture, codec=this.codecTexture, device=this.deviceTexture, pixel_format=this.pixel_formatTexture, width=this.widthTexture, height=this.heightTexture, profile=0}
 		};
 
-		unhvd = UNHVD.unhvd_init(ref net_config, hw_config, hw_config.Length, 1, IntPtr.Zero); // added the aux channel here as well
+		unhvd = UNHVD.unhvd_init(ref net_config, hw_config, hw_config.Length, 0, IntPtr.Zero); // TODO add the aux channel here as well
 
 		if (unhvd == IntPtr.Zero)
 		{
@@ -76,7 +75,7 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		}
 
 		// Compute Shader Setup
-		argsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 4, sizeof(int));
+		argsBuffer = new ComputeBuffer(4, sizeof(int), ComputeBufferType.IndirectArguments);
 		//vertex count per instance, instance count, start vertex location, start instance location
 		//position 0 will be overwritten with index buffer count after shader runs
 		//see https://docs.unity3d.com/2019.4/Documentation/ScriptReference/Graphics.DrawProceduralIndirectNow.html
@@ -156,18 +155,12 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		if (!updateNeeded)
 			return;
 
-		// native code in PrepareTextures() sets the texture data, so Apply() it here
-		depthTexture.Apply(false);
-		colorTextureY.Apply(false);
-		colorTextureU.Apply(false);
-		colorTextureV.Apply(false);
-
 		vertexBuffer.SetCounterValue(0);
 		//indexBuffer.SetCounterValue(0);
 		// create width/8 * height/8 thread groups, e.g. 40*30 = 1200 groups for 320x240
 		// each thread group will be set up as 8x8 threads
 		unprojectionShader.Dispatch(0, frame[0].width / 8, frame[0].height / 8, 1);
-		GraphicsBuffer.CopyCount(vertexBuffer, argsBuffer, 0);
+		ComputeBuffer.CopyCount(vertexBuffer, argsBuffer, 0);
 		//GraphicsBuffer.CopyCount(indexBuffer, argsBuffer, 0);
 		// TODO check if I should make a triangle index struct and append indices in threes, and 
 		// perform CopyCount as number of triangles as instances rather than one instance of thousands
@@ -182,31 +175,19 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		Adapt();
 
 		depthTexture.LoadRawTextureData(frame[0].data[0], frame[0].linesize[0] * frame[0].height);
+		depthTexture.Apply(false);
 
-		if (frame[1].data[0] == IntPtr.Zero)
-			return true; //only depth data is also ok
-
-		// All the NV12 texture data comes in frame 1, in 2 planes (Y, full width/ half height UV interleaved)
-		int yplane_size = frame[1].width * frame[1].height;
-		colorTextureY.LoadRawTextureData(frame[1].data[0], yplane_size);
-
-        // unpack the UV into separate planes
-        unsafe 
+		// if there's also a color texture frame
+		if (frame[1].data[0] != IntPtr.Zero)
 		{
-			NativeArray<byte> uvbytes = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(frame[1].data[1].ToPointer(), yplane_size / 2, Allocator.None);
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-			NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref uvbytes, AtomicSafetyHandle.Create());
-#endif
-			byte[] ubytes = colorTextureU.GetRawTextureData();
-			byte[] vbytes = colorTextureV.GetRawTextureData();
-			for (int i=0; i<yplane_size / 4; i++)
-            {
-				ubytes[i] = uvbytes[2 * i];
-				vbytes[i] = uvbytes[2 * i + 1];
-			}
-			colorTextureU.LoadRawTextureData(ubytes);
-			colorTextureV.LoadRawTextureData(vbytes);
+			// All the NV12 texture data comes in frame 1, in 2 planes (Y, full width/ half height UV interleaved)
+			int yplane_size = frame[1].linesize[0] * frame[1].height;
+			colorTextureY.LoadRawTextureData(frame[1].data[0], yplane_size);
+			colorTextureUV.LoadRawTextureData(frame[1].data[1], yplane_size / 2);
+			colorTextureY.Apply(false);
+			colorTextureUV.Apply(false);
 		}
+
 		return true;
 	}
 
@@ -219,7 +200,8 @@ public class GPUPointCloudRenderer : MonoBehaviour
 			unprojectionShader.SetTexture(0, "depthTexture", depthTexture);
 
 			// vertex buffer holds position(float4) and color(float4)
-			vertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Vertex | GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Append, frame[0].width * frame[0].height, 2 * sizeof(float) * 4);
+			//vertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Vertex | GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Append, frame[0].width * frame[0].height, 2 * sizeof(float) * 4);
+			vertexBuffer = new ComputeBuffer(frame[0].width * frame[0].height, 2 * sizeof(float) * 4, ComputeBufferType.Append);
 			unprojectionShader.SetBuffer(0, "vertices", vertexBuffer);
 
 			// index buffer holds triangle indices (up to width-1 * height-1 * 2, element size 3 * uint)
@@ -238,9 +220,7 @@ public class GPUPointCloudRenderer : MonoBehaviour
 			{
 				Debug.Log(string.Format("Texture data: format:{0}, planes({1}, {2}, {3}), sizes:({4}, {5}, {6})", frame[1].format, frame[1].data[0], frame[1].data[1], frame[1].data[2], frame[1].linesize[0], frame[1].linesize[1], frame[1].linesize[2]));
 				colorTextureY = new Texture2D(frame[1].width, frame[1].height, TextureFormat.R8, false);
-				colorTextureU = new Texture2D(frame[1].width / 2, frame[1].height / 2, TextureFormat.R8, false);
-				colorTextureV = new Texture2D(frame[1].width / 2, frame[1].height / 2, TextureFormat.R8, false);
-				
+				colorTextureUV = new Texture2D(frame[1].width, frame[1].height / 2, TextureFormat.R8, false);
 			}
 			else
 			{   //in case only depth data is coming prepare dummy color textures
@@ -251,23 +231,15 @@ public class GPUPointCloudRenderer : MonoBehaviour
 				colorTextureY.SetPixelData(data, 0, 0);
 				colorTextureY.Apply();
 
-				colorTextureU = new Texture2D(frame[0].width / 2, frame[0].height / 2, TextureFormat.R8, false);
-				data = new byte[frame[0].width * frame[0].height / 4];
+				colorTextureUV = new Texture2D(frame[0].width, frame[0].height / 2, TextureFormat.R8, false);
+				data = new byte[frame[0].width * frame[0].height / 2];
 				for (int i = 0; i < data.Length; i++)
 					data[i] = 0x80;
-				colorTextureU.SetPixelData(data, 0, 0);
-				colorTextureU.Apply();
-
-				colorTextureV = new Texture2D(frame[0].width / 2, frame[0].height / 2, TextureFormat.R8, false);
-				data = new byte[frame[0].width * frame[0].height / 4];
-				for (int i = 0; i < data.Length; i++)
-					data[i] = 0x80;
-				colorTextureV.SetPixelData(data, 0, 0);
-				colorTextureV.Apply();
+				colorTextureUV.SetPixelData(data, 0, 0);
+				colorTextureUV.Apply();
 			}
 			unprojectionShader.SetTexture(0, "colorTextureY", colorTextureY);
-			unprojectionShader.SetTexture(0, "colorTextureU", colorTextureU);
-			unprojectionShader.SetTexture(0, "colorTextureV", colorTextureV);
+			unprojectionShader.SetTexture(0, "colorTextureUV", colorTextureUV);
 		}
 	}
 
@@ -278,9 +250,11 @@ public class GPUPointCloudRenderer : MonoBehaviour
 
 		if (material == null)
 		{
-			material = new Material(pointCloudShader);
-			material.hideFlags = HideFlags.DontSave;
-		}
+            material = new Material(pointCloudShader)
+            {
+                hideFlags = HideFlags.DontSave
+            };
+        }
 
 		material.SetPass(0);
 		material.SetMatrix("transform", transform.localToWorldMatrix);
