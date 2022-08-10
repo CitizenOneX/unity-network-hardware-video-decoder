@@ -57,6 +57,7 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		Application.SetStackTraceLogType(LogType.Log, StackTraceLogType.None);
 
 		//Application.targetFrameRate = 30;
+		QualitySettings.vSyncCount = 0;
 
 		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config { ip = this.ip, port = this.port, timeout_ms = 500 };
 		UNHVD.unhvd_hw_config[] hw_config = new UNHVD.unhvd_hw_config[]
