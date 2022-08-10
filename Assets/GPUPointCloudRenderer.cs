@@ -221,7 +221,7 @@ public class GPUPointCloudRenderer : MonoBehaviour
 			{
 				Debug.Log(string.Format("Texture data: format:{0}, planes({1}, {2}, {3}), sizes:({4}, {5}, {6})", frame[1].format, frame[1].data[0], frame[1].data[1], frame[1].data[2], frame[1].linesize[0], frame[1].linesize[1], frame[1].linesize[2]));
 				colorTextureY = new Texture2D(frame[1].width, frame[1].height, TextureFormat.R8, false);
-				colorTextureUV = new Texture2D(frame[1].width, frame[1].height / 2, TextureFormat.R8, false);
+				colorTextureUV = new Texture2D(frame[1].width / 2, frame[1].height / 2, TextureFormat.RG16, false);
 			}
 			else
 			{   //in case only depth data is coming prepare dummy color textures
@@ -232,7 +232,7 @@ public class GPUPointCloudRenderer : MonoBehaviour
 				colorTextureY.SetPixelData(data, 0, 0);
 				colorTextureY.Apply();
 
-				colorTextureUV = new Texture2D(frame[0].width, frame[0].height / 2, TextureFormat.R8, false);
+				colorTextureUV = new Texture2D(frame[0].width, frame[0].height / 2, TextureFormat.RG16, false);
 				data = new byte[frame[0].width * frame[0].height / 2];
 				for (int i = 0; i < data.Length; i++)
 					data[i] = 0x80;
