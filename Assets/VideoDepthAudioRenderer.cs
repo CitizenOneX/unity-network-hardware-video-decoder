@@ -47,7 +47,7 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 	private Texture2D colorTextureY;
 
-	private const int AUDIO_SAMPLE_RATE = 22050;
+	private const int AUDIO_SAMPLE_RATE = 24000;
 	private const int AUDIO_SAMPLE_BUFFER_LENGTH = 256;
 	private const int AUDIO_SAMPLE_RING_CAPACITY = 40;
 	private readonly object audioBufferLock = new object();
@@ -122,7 +122,8 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 			if (audioBuffer.IsEmpty)
 			{
 				// underrun, just play silence
-				Array.Clear(data, 0, data.Length);
+				Debug.Log("Audio buffer underrun");
+				//Array.Clear(data, 0, data.Length); // already zeroed I think?
 			}
 			else
 			{
