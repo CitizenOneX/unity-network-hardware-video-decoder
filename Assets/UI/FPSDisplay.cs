@@ -1,12 +1,10 @@
 ﻿using UnityEngine;
-using System.Collections;
  
 public class FPSDisplay : MonoBehaviour
 {
 	float deltaTime = 0.0f;
 	public VideoDepthAudioRenderer v;
 	int videoFramesTotal, videoFramesAtSecondStart;
-	int audioFramesTotal, audioFramesAtSecondStart;
 	float currentSecondStart;
 	public int vfps, afps;
 
@@ -20,7 +18,6 @@ public class FPSDisplay : MonoBehaviour
 		deltaTime += (Time.unscaledDeltaTime - deltaTime) * 0.1f;
 
 		videoFramesTotal = v.VideoFrameNumber;
-		audioFramesTotal = v.AudioFrameNumber;
 
 		float currentTime = Time.time;
 		if (currentTime - 1.0f > currentSecondStart)
@@ -28,9 +25,7 @@ public class FPSDisplay : MonoBehaviour
 			currentSecondStart = currentTime;
 			vfps = videoFramesTotal - videoFramesAtSecondStart;
 			videoFramesAtSecondStart = videoFramesTotal;
-			afps = audioFramesTotal - audioFramesAtSecondStart;
-			audioFramesAtSecondStart = audioFramesTotal;
-			Debug.Log($"fps: {1.0f / deltaTime}, vfps: {vfps}, afps: {afps}, queue: {v.AudioQueueLength}");
+			Debug.Log($"fps: {1.0f / deltaTime}, vfps: {vfps}");
         }
 	}
  /*

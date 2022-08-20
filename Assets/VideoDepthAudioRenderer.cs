@@ -10,11 +10,7 @@
  */
 
 using System;
-using System.Threading;
-using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
-using UnityEngine.Assertions;
 
 [RequireComponent(typeof(AudioSource))]
 public class VideoDepthAudioRenderer : MonoBehaviour
@@ -38,6 +34,7 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 	private IntPtr unhvd;
 
+	// note: 3 frames in stream (depth, color, audio) but audio is only handled natively in unhvd and doesn't come up through Unity
 	private UNHVD.unhvd_frame[] frame = new UNHVD.unhvd_frame[]
 	{
 		new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] }, // depth
@@ -47,17 +44,8 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 
 	private Texture2D colorTextureY;
 
-	private const int AUDIO_SAMPLE_RATE = 24000;
-	private const int AUDIO_SAMPLE_BUFFER_LENGTH = 256;
-	private const int AUDIO_SAMPLE_RING_CAPACITY = 40;
-	private readonly object audioBufferLock = new object();
-	private CircularBuffer<float> audioBuffer = new CircularBuffer<float>(AUDIO_SAMPLE_RING_CAPACITY, AUDIO_SAMPLE_BUFFER_LENGTH);
-	private AudioSource aud;
-
 	// some performance statistics for the FPS Display (logger)
 	public int VideoFrameNumber = 0;
-	public int AudioFrameNumber = 0;
-	public int AudioQueueLength { get => audioBuffer.QueueLength; }
 
 	void Awake()
 	{
@@ -92,45 +80,8 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 			uv [i][1] = -uv [i][1];
 		GetComponent<MeshFilter> ().mesh.uv = uv;
 
-		// tweak the audio configuration for low latency
-		var audioConfig = AudioSettings.GetConfiguration();
-		audioConfig.dspBufferSize = 256; // "Best latency" (also numbuffers==4, no longer settable)
-		audioConfig.numRealVoices = 1;
-		audioConfig.numVirtualVoices = 1;
-		audioConfig.sampleRate = AUDIO_SAMPLE_RATE;
-		audioConfig.speakerMode = AudioSpeakerMode.Mono;
-		AudioSettings.Reset(audioConfig);
-
-		// Find the AudioSource component and prepare the streaming clip
-		aud = GetComponent<AudioSource>();
-		var dummyClip = AudioClip.Create("dummy", 1, 1, AUDIO_SAMPLE_RATE, false);
-		dummyClip.SetData(new float[1], 0);
-		aud.clip = dummyClip; // needed for Unity to play the AudioSource
-		aud.loop = false; // doesn't seem to stop source from playing continuously
-
 		// don't limit the frame rate, we want to sample packets frequently
 		QualitySettings.vSyncCount = 0;
-	}
-
-	void OnAudioFilterRead(float[] data, int channels)
-	{
-		Assert.AreEqual(data.Length, AUDIO_SAMPLE_BUFFER_LENGTH);
-		lock (audioBufferLock)
-		{
-			//Debug.Log("OnAudioFilterRead QueueLength: " + audioBuffer.QueueLength);
-
-			if (audioBuffer.IsEmpty)
-			{
-				// underrun, just play silence
-				Debug.Log("Audio buffer underrun");
-				//Array.Clear(data, 0, data.Length); // already zeroed I think?
-			}
-			else
-			{
-				// copy the collected audio data over to the DSP buffer
-				Array.Copy(audioBuffer.Read(), 0, data, 0, AUDIO_SAMPLE_BUFFER_LENGTH);
-			}
-		}
 	}
 
 	void OnDestroy()
@@ -167,45 +118,6 @@ public class VideoDepthAudioRenderer : MonoBehaviour
 				// TODO copy the U and V frames (packed together in NV12 on Windows/NVIDIA) to separate
 				// textures and combine in shader
 				colorTextureY.Apply(false);
-			}
-			// if audio is present...
-			if (frame[2].data != null && frame[2].data[0] != null && frame[2].linesize != null && frame[2].linesize[0] > 0)
-            {
-				lock (audioBufferLock)
-				{
-					unsafe
-					{
-						//Debug.Log("Copy incoming audio frame samples: " + frame[2].linesize[0] / UnsafeUtility.SizeOf<float>());
-
-						// cast the incoming audio frame to a float array
-						NativeArray<float> audioSamples = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<float>(
-							frame[2].data[0].ToPointer(),
-							frame[2].linesize[0] / UnsafeUtility.SizeOf<float>(), // must be equal to audioSampleBufferLength though
-							Allocator.None);
-
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-						NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref audioSamples, AtomicSafetyHandle.Create());
-#endif
-						Assert.AreEqual(audioSamples.Length, AUDIO_SAMPLE_BUFFER_LENGTH);
-						//Debug.Log("Update Audio Frame Present - QueueLength: " + audioBuffer.QueueLength);
-
-						if (audioBuffer.IsFull)
-						{
-							audioBuffer.Overwrite(audioSamples);
-						}
-						else
-						{
-							audioBuffer.Write(audioSamples);
-						}
-
-						// just wait a few frames before starting the audio so we don't get all the buffer underrun
-						if (++AudioFrameNumber == 20)
-						{
-							Debug.Log("Starting Audio now that we've had 20 audio frames");
-							aud.Play();
-						}
-					}
-				}
 			}
 		}
 
