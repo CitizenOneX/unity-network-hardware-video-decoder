@@ -31,11 +31,12 @@ public class GPUPointCloudRenderer : MonoBehaviour
 
 	private IntPtr unhvd;
 
+	// note: 3 frames in stream (depth, color, audio) but audio is only handled natively in unhvd and doesn't come up through Unity
 	private UNHVD.unhvd_frame[] frame = new UNHVD.unhvd_frame[]
 	{
 		new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] }, // depth
-		new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] } // color
-		//new UNHVD.unhvd_frame{ data=new System.IntPtr[1], linesize=new int[3] }  // aux (raw PCM audio)
+		new UNHVD.unhvd_frame{ data=new System.IntPtr[3], linesize=new int[3] }, // color
+		new UNHVD.unhvd_frame{ data=new System.IntPtr[1], linesize=new int[3] }  // aux (raw PCM audio)
 	};
 
 	private Texture2D depthTexture; //uint16 depth map filled with data from native side
@@ -56,8 +57,8 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		// trim down the debug messages to not include stack traces
 		Application.SetStackTraceLogType(LogType.Log, StackTraceLogType.None);
 
-		//Application.targetFrameRate = 30;
-		QualitySettings.vSyncCount = 0;
+		Application.targetFrameRate = 30;
+		//QualitySettings.vSyncCount = 0;
 
 		UNHVD.unhvd_net_config net_config = new UNHVD.unhvd_net_config { ip = this.ip, port = this.port, timeout_ms = 500 };
 		UNHVD.unhvd_hw_config[] hw_config = new UNHVD.unhvd_hw_config[]
@@ -66,7 +67,7 @@ public class GPUPointCloudRenderer : MonoBehaviour
 			new UNHVD.unhvd_hw_config{hardware=this.hardwareTexture, codec=this.codecTexture, device=this.deviceTexture, pixel_format=this.pixel_formatTexture, width=this.widthTexture, height=this.heightTexture, profile=0}
 		};
 
-		unhvd = UNHVD.unhvd_init(ref net_config, hw_config, hw_config.Length, 0, IntPtr.Zero); // TODO add the aux channel here as well
+		unhvd = UNHVD.unhvd_init(ref net_config, hw_config, hw_config.Length, 1, IntPtr.Zero); // aux channel here is for audio but it's processed natively not in Unity
 
 		if (unhvd == IntPtr.Zero)
 		{
