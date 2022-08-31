@@ -100,7 +100,8 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		//sample config for L515 640x480 with depth units resulting in 2.5 mm precision and 2.5575 m range (alignment to depth)
 		//?DepthConfig dc = new DepthConfig { ppx = 358.781f, ppy = 246.297f, fx = 470.941f, fy = 470.762f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f };
 		//DepthConfig dc = new DepthConfig { ppx = 319.809f, ppy = 236.507f, fx = 606.767f, fy = 607.194f, depth_unit = 0.0000390625f, min_margin = 0.19f, max_margin = 0.01f };
-		DepthConfig dc = new DepthConfig { ppx = 319.809f, ppy = 236.507f, fx = 606.767f, fy = 607.194f, depth_unit = 0.00025f, min_margin = 0.01f, max_margin = 0.01f };
+		// streamed data will have 1mm depth resolution, 1.024m range, displaced 51.2cm closer to camera
+		DepthConfig dc = new DepthConfig { ppx = 319.809f, ppy = 236.507f, fx = 606.767f, fy = 607.194f, depth_unit = 0.001f, min_margin = 0.01f, max_margin = 0.01f };
 
 		SetDepthConfig(dc);
 	}
@@ -178,6 +179,8 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		Adapt();
 
 		depthTexture.LoadRawTextureData(frame[0].data[0], frame[0].linesize[0] * frame[0].height);
+		// GetPixel normalises the 0..65536 uint16 Red value to 0..1, so our 10-MSB-bit 128..65472 range gets scaled down by 65536 too
+		//Debug.Log(string.Format("GPUPointCloud: Center depth point: {0}", depthTexture.GetPixel(frame[0].height / 2, frame[0].width / 2).r * 65536.0f));
 		depthTexture.Apply(false);
 
 		// if there's also a color texture frame
@@ -199,22 +202,32 @@ public class GPUPointCloudRenderer : MonoBehaviour
 		//adapt to incoming stream if something changed
 		if (depthTexture == null || depthTexture.width != frame[0].width || depthTexture.height != frame[0].height)
 		{
-			depthTexture = new Texture2D(frame[0].width, frame[0].height, TextureFormat.R16, false);
-			unprojectionShader.SetTexture(0, "depthTexture", depthTexture);
+			if (SystemInfo.SupportsTextureFormat(TextureFormat.R16))
+			{
+				Debug.Log(string.Format("GPUPointCloud: TextureFormat.R16 is supported, LittleEndian={0}", BitConverter.IsLittleEndian));
+				depthTexture = new Texture2D(frame[0].width, frame[0].height, TextureFormat.R16, false);
+				unprojectionShader.SetTexture(0, "depthTexture", depthTexture);
 
-			// vertex buffer holds position(float4) and color(float4)
-			//vertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Vertex | GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Append, frame[0].width * frame[0].height, 2 * sizeof(float) * 4);
-			vertexBuffer = new ComputeBuffer(frame[0].width * frame[0].height, 2 * sizeof(float) * 4, ComputeBufferType.Append);
-			unprojectionShader.SetBuffer(0, "vertices", vertexBuffer);
+				// vertex buffer holds position(float4) and color(float4)
+				//vertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Vertex | GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Append, frame[0].width * frame[0].height, 2 * sizeof(float) * 4);
+				vertexBuffer = new ComputeBuffer(frame[0].width * frame[0].height, 2 * sizeof(float) * 4, ComputeBufferType.Append);
+				unprojectionShader.SetBuffer(0, "vertices", vertexBuffer);
 
-			// index buffer holds triangle indices (up to width-1 * height-1 * 2, element size 3 * uint)
-			// but 12 is an invalid stride, so create it as individual 4-byte uints and see if we can have it 
-			// structured in the compute shader
-			//indexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Index, (frame[0].width - 1) * (frame[0].height - 1) * 2 * 3, sizeof(uint));
-			// FIXME just set 3 indices from a central triangle for starters
-			//indexBuffer.SetData(new uint[] { 120 * 320 + 160, 121 * 320 + 160, 120 * 320 + 159 }); // y increases downwards?
-			//indexBuffer.SetData(new uint[] { 120 * 320 + 160, 121 * 320 + 160, 121 * 320 + 159 }); // y increases upwards?
-			//unprojectionShader.SetBuffer(0, "indices", indexBuffer);
+				// index buffer holds triangle indices (up to width-1 * height-1 * 2, element size 3 * uint)
+				// but 12 is an invalid stride, so create it as individual 4-byte uints and see if we can have it 
+				// structured in the compute shader
+				//indexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Index, (frame[0].width - 1) * (frame[0].height - 1) * 2 * 3, sizeof(uint));
+				// FIXME just set 3 indices from a central triangle for starters
+				//indexBuffer.SetData(new uint[] { 120 * 320 + 160, 121 * 320 + 160, 120 * 320 + 159 }); // y increases downwards?
+				//indexBuffer.SetData(new uint[] { 120 * 320 + 160, 121 * 320 + 160, 121 * 320 + 159 }); // y increases upwards?
+				//unprojectionShader.SetBuffer(0, "indices", indexBuffer);
+			}
+			else
+			{
+				Debug.LogError("GPUPointCloud: ERROR TextureFormat.R16 is not supported");
+				gameObject.SetActive(false);
+				return;
+			}
 		}
 
 		if (colorTextureY == null || colorTextureY.width != frame[1].width || colorTextureY.height != frame[1].height)
