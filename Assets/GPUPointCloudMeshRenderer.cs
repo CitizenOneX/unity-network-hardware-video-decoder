@@ -10,6 +10,7 @@
  */
 
 using System;
+using System.Runtime.InteropServices;
 using UnityEngine;
 
 public class GPUPointCloudMeshRenderer : MonoBehaviour
@@ -47,9 +48,25 @@ public class GPUPointCloudMeshRenderer : MonoBehaviour
 	private ComputeBuffer argsBuffer;   // indirect rendering args
 
 	public ComputeShader unprojectionShader;
+	public ComputeShader fixupArgsShader;
 	public Shader pointCloudShader;
 
 	private Material material;
+
+	// DrawProceduralIndirect
+	[StructLayout(LayoutKind.Sequential)]
+	struct DrawCallArgBuffer
+	{
+		public const int size =
+			sizeof(int) +
+			sizeof(int) +
+			sizeof(int) +
+			sizeof(int);
+		public int vertexCountPerInstance;
+		public int instanceCount;
+		public int startVertexLocation;
+		public int startInstanceLocation;
+	}
 
 	void Awake()
 	{
@@ -166,6 +183,14 @@ public class GPUPointCloudMeshRenderer : MonoBehaviour
 		// TODO or should I have 1200 of 16x16, or 20x30 groups of 32x16 threads (Adreno 630 has 512 ALUs? SIMDs?)
 		unprojectionShader.Dispatch(0, frame[0].width / 8, frame[0].height / 8, 1);
 		ComputeBuffer.CopyCount(vertexBuffer, argsBuffer, 0); // we want to write into vertex count entry (and we're not doing instancing)
+
+		// briefly call the second compute shader to multiply vertex count by 3
+		// prior to calling the vertex/fragment shaders
+		// Invoke very simple args fixup as generated count was triangles, not verts 
+		int fixupKernelIndex = fixupArgsShader.FindKernel("FixupIndirectArgs");
+		Debug.Log("Fixup Kernel is: " + fixupKernelIndex);
+		fixupArgsShader.SetBuffer(fixupKernelIndex, "DrawCallArgs", argsBuffer);
+		fixupArgsShader.Dispatch(fixupKernelIndex, 1, 1, 1);
 	}
 
 	private bool PrepareTextures()

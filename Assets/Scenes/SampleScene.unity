@@ -795,6 +795,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   unprojectionShader: {fileID: 7200000, guid: 85fba78ac48afe84494f66ba154d0385, type: 3}
+  fixupArgsShader: {fileID: 7200000, guid: 85fba78ac48afe84494f66ba154d0385, type: 3}
   pointCloudShader: {fileID: 4800000, guid: 92c9447d6f5c0ef7591ec70801039484, type: 3}
 --- !u!4 &891905734
 Transform:
