@@ -47,9 +47,10 @@ public class GPUPointCloudMeshRenderer : MonoBehaviour
 	private ComputeBuffer vertexBuffer; // [2 * [3 * (float4,float4 (vertex position, color))]]+ AppendStructuredBuffer in compute shader - 2 triangles added per point
 	private ComputeBuffer argsBuffer;   // indirect rendering args
 
-	public ComputeShader unprojectionShader;
-	public ComputeShader fixupArgsShader;
 	public Shader pointCloudShader;
+	public ComputeShader unprojectionShader;
+	private int unprojectMeshKernelIndex;
+	private int fixupArgsKernelIndex;
 
 	private Material material;
 
@@ -93,13 +94,16 @@ public class GPUPointCloudMeshRenderer : MonoBehaviour
 		}
 
 		// Compute Shader Setup
+		unprojectMeshKernelIndex = unprojectionShader.FindKernel("UnprojectMeshKernel");
+		fixupArgsKernelIndex = unprojectionShader.FindKernel("FixupIndirectArgs");
+
 		argsBuffer = new ComputeBuffer(4, sizeof(int), ComputeBufferType.IndirectArguments);
 		//vertex count per instance, instance count, start vertex location, start instance location
 		//position 0 will be overwritten with vertex buffer count after shader runs
 		//see https://docs.unity3d.com/2019.4/Documentation/ScriptReference/Graphics.DrawProceduralIndirectNow.html
 		// 6 vertices per 2-triangle-quad * (width-1) * (height-1) if no culling;
 		// but vertex count will be overwritten from counter, no instancing (just the one), zero offsets
-		argsBuffer.SetData(new int[] { 0, 1, 0, 0 }); 
+		argsBuffer.SetData(new int[] { 0, 1, 0, 0 });
 
 		//For depth config explanation see:
 		//https://github.com/bmegli/unity-network-hardware-video-decoder/wiki/Point-clouds-configuration
@@ -181,16 +185,14 @@ public class GPUPointCloudMeshRenderer : MonoBehaviour
 		// create width/8 * height/8 thread groups, e.g. 80*60 = 4800 groups for 640x480
 		// each thread group will be set up as 8x8 threads
 		// TODO or should I have 1200 of 16x16, or 20x30 groups of 32x16 threads (Adreno 630 has 512 ALUs? SIMDs?)
-		unprojectionShader.Dispatch(0, frame[0].width / 8, frame[0].height / 8, 1);
+		unprojectionShader.Dispatch(unprojectMeshKernelIndex, frame[0].width / 8, frame[0].height / 8, 1);
 		ComputeBuffer.CopyCount(vertexBuffer, argsBuffer, 0); // we want to write into vertex count entry (and we're not doing instancing)
 
-		// briefly call the second compute shader to multiply vertex count by 3
-		// prior to calling the vertex/fragment shaders
-		// Invoke very simple args fixup as generated count was triangles, not verts 
-		int fixupKernelIndex = fixupArgsShader.FindKernel("FixupIndirectArgs");
-		Debug.Log("Fixup Kernel is: " + fixupKernelIndex);
-		fixupArgsShader.SetBuffer(fixupKernelIndex, "DrawCallArgs", argsBuffer);
-		fixupArgsShader.Dispatch(fixupKernelIndex, 1, 1, 1);
+		// call the second compute shader to multiply vertex count by 3
+		// prior to calling the vertex/fragment shaders, because we added triangles to the buffer, not single vertices.
+		// If we had added vertices individually, they get garbled due to thread/group race conditions
+		unprojectionShader.SetBuffer(fixupArgsKernelIndex, "DrawCallArgs", argsBuffer);
+		unprojectionShader.Dispatch(fixupArgsKernelIndex, 1, 1, 1);
 	}
 
 	private bool PrepareTextures()
@@ -228,12 +230,11 @@ public class GPUPointCloudMeshRenderer : MonoBehaviour
 			{
 				Debug.Log(string.Format("GPUPointCloud: TextureFormat.R16 is supported, LittleEndian={0}", BitConverter.IsLittleEndian));
 				depthTexture = new Texture2D(frame[0].width, frame[0].height, TextureFormat.R16, false);
-				unprojectionShader.SetTexture(0, "depthTexture", depthTexture);
+				unprojectionShader.SetTexture(unprojectMeshKernelIndex, "depthTexture", depthTexture);
 
 				// vertex buffer holds position(float4) and color(float4), width-1 * height-1 * 6 vertices per 2-triangle-quad.
-				//vertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Vertex | GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Append, frame[0].width * frame[0].height, 2 * sizeof(float) * 4);
 				vertexBuffer = new ComputeBuffer((frame[0].width - 1) * (frame[0].height - 1) * 2, 3 * 2 * sizeof(float) * 4, ComputeBufferType.Append);
-				unprojectionShader.SetBuffer(0, "vertices", vertexBuffer);
+				unprojectionShader.SetBuffer(unprojectMeshKernelIndex, "vertices", vertexBuffer);
 			}
 			else
 			{
@@ -267,8 +268,8 @@ public class GPUPointCloudMeshRenderer : MonoBehaviour
 				colorTextureUV.SetPixelData(data, 0, 0);
 				colorTextureUV.Apply();
 			}
-			unprojectionShader.SetTexture(0, "colorTextureY", colorTextureY);
-			unprojectionShader.SetTexture(0, "colorTextureUV", colorTextureUV);
+			unprojectionShader.SetTexture(unprojectMeshKernelIndex, "colorTextureY", colorTextureY);
+			unprojectionShader.SetTexture(unprojectMeshKernelIndex, "colorTextureUV", colorTextureUV);
 		}
 	}
 
