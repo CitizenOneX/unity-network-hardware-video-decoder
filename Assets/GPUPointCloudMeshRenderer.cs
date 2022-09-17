@@ -268,8 +268,6 @@ public class GPUPointCloudMeshRenderer : MonoBehaviour
 				colorTextureUV.SetPixelData(data, 0, 0);
 				colorTextureUV.Apply();
 			}
-			unprojectionShader.SetTexture(unprojectMeshKernelIndex, "colorTextureY", colorTextureY);
-			unprojectionShader.SetTexture(unprojectMeshKernelIndex, "colorTextureUV", colorTextureUV);
 		}
 	}
 
@@ -289,6 +287,8 @@ public class GPUPointCloudMeshRenderer : MonoBehaviour
 		material.SetPass(0);
 		material.SetMatrix("transform", transform.localToWorldMatrix);
 		material.SetBuffer("vertices", vertexBuffer);
+		material.SetTexture("colorTextureY", colorTextureY);
+		material.SetTexture("colorTextureUV", colorTextureUV);
 
 		Graphics.DrawProceduralIndirectNow(MeshTopology.Triangles, argsBuffer);
 	}
