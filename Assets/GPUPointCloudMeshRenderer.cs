@@ -235,6 +235,9 @@ public class GPUPointCloudMeshRenderer : MonoBehaviour
 				// vertex buffer holds position(float4) and color(float4), width-1 * height-1 * 6 vertices per 2-triangle-quad.
 				vertexBuffer = new ComputeBuffer((frame[0].width - 1) * (frame[0].height - 1) * 2, 3 * 2 * sizeof(float) * 4, ComputeBufferType.Append);
 				unprojectionShader.SetBuffer(unprojectMeshKernelIndex, "vertices", vertexBuffer);
+
+				unprojectionShader.SetInt("WidthMinus1", frame[0].width - 1);
+				unprojectionShader.SetInt("HeightMinus1", frame[0].height - 1);
 			}
 			else
 			{
